@@ -1,0 +1,54 @@
+.image_holder {
+}
+
+.image_holder img {
+    position: absolute;
+}
+
+#slider_div {
+
+}
+
+.control_container {
+    margin-top: 5px;
+    margin-bottom: 5px;
+    position: fixed;
+    z-index: 9;
+    background-color: #f1f1f1;
+    border: 1px solid #d3d3d3;
+    text-align: center;
+}
+
+.control_container_header {
+  padding: 10px;
+  cursor: move;
+  z-index: 10;
+  background-color: #2196F3;
+  color: #fff;
+}
+
+.sccene_label {
+    margin-left: 20px;
+}
+
+img {
+    border: 1px solid black;
+    padding: 3px;
+    margin: 3px;
+}
+
+fieldset {
+    border-radius: 5px;
+}
+
+.legend {
+    vertical-align:middle;
+}
+
+td {
+    text-align: left;
+}
+
+th, td {
+   padding: 10px;
+}

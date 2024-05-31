@@ -1,0 +1,3 @@
+include src/netcdf2html/api/index.js
+include src/netcdf2html/api/index.css
+
