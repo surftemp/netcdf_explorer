@@ -176,11 +176,14 @@ function boot() {
    });
 }
 
-function setup_drag(elt, header_elt) {
+function setup_drag(elt, header_elt, initial_top, initial_left) {
   var startx, starty, dx, dy;
 
-  var top = elt.offsetTop;
-  var left = elt.offsetLeft;
+  elt.style.top = initial_top+"px";
+  elt.style.left = initial_left+"px";
+
+  var top = initial_top;
+  var left = initial_left;
 
   header_elt.onmousedown = start_drag;
 
@@ -215,6 +218,6 @@ function setup_drag(elt, header_elt) {
 
 window.addEventListener("load", (ect) => {
    boot();
-   setup_drag(document.getElementById("layer_container"),document.getElementById("layer_container_header"));
-   setup_drag(document.getElementById("filter_container"),document.getElementById("filter_container_header"));
+   setup_drag(document.getElementById("layer_container"),document.getElementById("layer_container_header"), 400, 400);
+   setup_drag(document.getElementById("filter_container"),document.getElementById("filter_container_header"), 200, 400);
 });

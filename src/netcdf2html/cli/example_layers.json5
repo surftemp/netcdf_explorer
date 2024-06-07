@@ -2,7 +2,9 @@
   // specify which dimension is used to provide the case
   // all the variables referenced in the layers section must include this dimension
   "dimensions": {
-    "case": "time"
+    "case": "time",
+    "x": "x",
+    "y": "y"
   },
   // specify the names of the coordinates used in the time, x and y dimensions
   // note that all these coordinates must be 1-dimensional

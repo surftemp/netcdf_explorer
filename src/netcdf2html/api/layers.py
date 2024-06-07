@@ -58,20 +58,11 @@ def save_image_mask(arr, path, r, g, b):
     im = Image.fromarray(rgba_arr, mode="RGBA")
     im.save(path)
 
-def get_image_dimensions(ds):
-    if len(ds.lat.shape) == 2:
-        image_height = ds.lat.shape[0]
-        image_width = ds.lon.shape[1]
-    elif len(ds.lat.shape) == 1:
-        image_height = ds.lat.shape[0]
-        image_width = ds.lon.shape[1]
-    else:
-        raise Exception("Unable to determine image dimensions from dataset")
-    return (image_width, image_height)
+
 
 class LayerBase:
 
-    def __init__(self, layer_name, layer_label, selectors={}):
+    def __init__(self, converter, layer_name, layer_label, selectors={}):
         self.layer_name = layer_name
         self.layer_label = layer_label
         self.case_dimension = ""
@@ -81,19 +72,20 @@ class LayerBase:
         self.selectors = selectors
         self.flipud = False
         self.fliplr = False
-
-    def bind(self, case_dimension, x_coordinate, y_coordinate, time_coordinate):
-        self.case_dimension = case_dimension
-        self.time_coordinate = time_coordinate
-        self.x_coordinate = x_coordinate
-        self.y_coordinate = y_coordinate
+        self.converter = converter
+        self.case_dimension = converter.case_dimension
+        self.x_dimension = converter.x_dimension
+        self.y_dimension = converter.y_dimension
+        self.time_coordinate = converter.time_coordinate
+        self.x_coordinate = converter.x_coordinate
+        self.y_coordinate = converter.y_coordinate
 
     def check(self, ds):
         for variable in [self.x_coordinate, self.y_coordinate, self.time_coordinate]:
             if variable and variable not in ds:
                 return f"No variable {variable}"
-        xc = ds[self.x_coordinate]
-        yc = ds[self.y_coordinate]
+        xc = self.converter.get_x_coords(ds)
+        yc = self.converter.get_y_coords(ds)
         if len(xc.shape) != 1:
             return "x_coordinate {self.x_coordinate} must be 1-dimensional"
         if len(yc.shape) != 1:
@@ -111,8 +103,9 @@ class LayerBase:
         ndims = len(da.dims)
         if ndims != 2:
             raise Exception("Data is not 2D")
-        x_index = da.dims.index(self.x_coordinate)
-        y_index = da.dims.index(self.y_coordinate)
+
+        x_index = da.dims.index(self.x_dimension)
+        y_index = da.dims.index(self.y_dimension)
         arr = da.data
         if y_index > x_index:
             arr = np.transpose(arr)
@@ -125,8 +118,8 @@ class LayerBase:
 
 class LayerRGB(LayerBase):
 
-    def __init__(self, layer_name, layer_label, selectors, red_variable, green_variable, blue_variable):
-        super().__init__(layer_name, layer_label, selectors)
+    def __init__(self, converter, layer_name, layer_label, selectors, red_variable, green_variable, blue_variable):
+        super().__init__(converter, layer_name, layer_label, selectors)
         self.red_variable = red_variable
         self.green_variable = green_variable
         self.blue_variable = blue_variable
@@ -152,8 +145,8 @@ class LayerRGB(LayerBase):
 
 class LayerSingleBand(LayerBase):
 
-    def __init__(self, layer_name, layer_label, selectors, band_name, vmin, vmax, cmap_name):
-        super().__init__(layer_name, layer_label, selectors)
+    def __init__(self, converter, layer_name, layer_label, selectors, band_name, vmin, vmax, cmap_name):
+        super().__init__(converter, layer_name, layer_label, selectors)
         self.band_name = band_name
         self.vmin = vmin
         self.vmax = vmax
@@ -182,8 +175,8 @@ class LayerSingleBand(LayerBase):
 
 class LayerWMS(LayerBase):
 
-    def __init__(self, layer_name, layer_label, wms_url, scale):
-        super().__init__(layer_name, layer_label)
+    def __init__(self, converter, layer_name, layer_label, wms_url, scale):
+        super().__init__(converter, layer_name, layer_label)
         self.wms_url = wms_url
         self.cache = {}
         self.failed = set()
@@ -195,12 +188,12 @@ class LayerWMS(LayerBase):
     def build(self,ds,path):
         if os.path.exists(path):
             os.remove(path)
-        image_width, image_height = get_image_dimensions(ds)
+        image_width, image_height = self.converter.get_image_dimensions(ds)
         image_width *= self.scale
         image_height *= self.scale
 
-        xc = ds[self.x_coordinate]
-        yc = ds[self.y_coordinate]
+        xc = self.converter.get_x_coords(ds)
+        yc = self.converter.get_y_coords(ds)
 
         spacing_x = abs(float(xc[0]) - float(xc[1]))
         spacing_y = abs(float(yc[0]) - float(yc[1]))
@@ -214,11 +207,11 @@ class LayerWMS(LayerBase):
             .replace("{XMIN}",str(x_min)).replace("{XMAX}", str(x_max))
 
         if url in self.cache:
-            os.symlink(self.cache[url],path)
+            shutil.copyfile(self.cache[url],path)
         elif url in self.failed:
             pass
         else:
-            print(url)
+            print("Fetching:"+url)
             r = requests.get(url, stream=True)
             if r.status_code == 200:
                 with open(path, 'wb') as f:
@@ -231,8 +224,8 @@ class LayerWMS(LayerBase):
 
 class LayerMask(LayerBase):
 
-    def __init__(self, layer_name, layer_label, selectors, band_name, r, g, b, mask):
-        super().__init__(layer_name, layer_label, selectors)
+    def __init__(self, converter, layer_name, layer_label, selectors, band_name, r, g, b, mask):
+        super().__init__(converter, layer_name, layer_label, selectors)
         self.band_name = band_name
         self.r = r
         self.g = g
@@ -255,7 +248,7 @@ class LayerMask(LayerBase):
 class LayerFactory:
 
     @staticmethod
-    def create(layer_name, layer, case_dimension, default_x_coordinate, default_y_coordinate, time_coordinate):
+    def create(converter, layer_name, layer, case_dimension, default_x_coordinate, default_y_coordinate, time_coordinate):
         layer_type = layer["type"]
         layer_label = layer.get("label", layer_name)
         selectors = layer.get("selectors", {})
@@ -264,29 +257,25 @@ class LayerFactory:
             vmin = layer["min_value"]
             vmax = layer["max_value"]
             cmap = layer.get("cmap", "coolwarm")
-            created_layer = LayerSingleBand(layer_name, layer_label, selectors, layer_band, vmin, vmax, cmap)
+            created_layer = LayerSingleBand(converter, layer_name, layer_label, selectors, layer_band, vmin, vmax, cmap)
         elif layer_type == "mask":
             layer_band = layer.get("band", "")
             r = layer["r"]
             g = layer["g"]
             b = layer["b"]
             mask = layer.get("mask", None)
-            created_layer = LayerMask(layer_name, layer_label, selectors, layer_band, r, g, b, mask)
+            created_layer = LayerMask(converter, layer_name, layer_label, selectors, layer_band, r, g, b, mask)
         elif layer_type == "rgb":
             red_band = layer["red_band"]
             green_band = layer["green_band"]
             blue_band = layer["blue_band"]
-            created_layer = LayerRGB(layer_name, layer_label, selectors, red_band, green_band, blue_band)
+            created_layer = LayerRGB(converter, layer_name, layer_label, selectors, red_band, green_band, blue_band)
         elif layer_type == "wms":
             url = layer["url"]
             scale = layer.get("scale", 1)
-            created_layer = LayerWMS(layer_name, layer_label, url, scale)
+            created_layer = LayerWMS(converter, layer_name, layer_label, url, scale)
         else:
             raise Exception(f"Unknown layer type {layer_type}")
-
-        x_coord = layer.get("x", default_x_coordinate)
-        y_coord = layer.get("y", default_y_coordinate)
-        created_layer.bind(case_dimension, x_coord, y_coord, time_coordinate)
 
         return created_layer
 

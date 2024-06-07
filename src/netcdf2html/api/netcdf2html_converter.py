@@ -39,22 +39,15 @@ from netcdf2html.fragments.legend import LegendFragment
 js_path = os.path.join(os.path.split(__file__)[0],"index.js")
 css_path = os.path.join(os.path.split(__file__)[0],"index.css")
 
-def get_image_dimensions(ds):
-    if len(ds.lat.shape) == 2:
-        image_height = ds.lat.shape[0]
-        image_width = ds.lon.shape[1]
-    elif len(ds.lat.shape) == 1:
-        image_height = ds.lat.shape[0]
-        image_width = ds.lon.shape[1]
-    else:
-        raise Exception("Unable to determin image dimensions from dataset")
-    return (image_width, image_height)
+
 
 class Netcdf2HtmlConverter:
 
     def __init__(self, config, input_ds, output_folder, title, sample_count=None, netcdf_download_filename=""):
         dimensions = config.get("dimensions", {})
         case_dimension = dimensions.get("case", "time")
+        x_dimension = dimensions.get("x", "x")
+        y_dimension = dimensions.get("y", "y")
         coordinates = config.get("coordinates", {})
         x_coordinate = coordinates.get("x", "x")
         y_coordinate = coordinates.get("y", "y")
@@ -64,6 +57,8 @@ class Netcdf2HtmlConverter:
         grid_image_width = image.get("grid-width", None)
 
         self.case_dimension = case_dimension
+        self.x_dimension = x_dimension
+        self.y_dimension = y_dimension
         self.x_coordinate = x_coordinate
         self.y_coordinate = y_coordinate
         self.time_coordinate = time_coordinate
@@ -85,19 +80,45 @@ class Netcdf2HtmlConverter:
         self.layer_legends = {}
 
         for (layer_name, layer_spec) in config["layers"].items():
-            layer = LayerFactory.create(layer_name, layer_spec, self.case_dimension, self.x_coordinate, self.y_coordinate, self.time_coordinate)
+            layer = LayerFactory.create(self, layer_name, layer_spec, self.case_dimension, self.x_coordinate, self.y_coordinate, self.time_coordinate)
             self.layer_definitions.append(layer)
 
-    def get_image_path(self, key, timestamp=""):
-        filename = key+timestamp+".png"
+    def get_image_path(self, key, index=None):
+        if index is not None:
+            filename = f"{key}{index}.png"
+        else:
+            filename = f"{key}.png"
         src = os.path.join("images", filename)
         path = os.path.join(self.output_folder, src)
         return (src,path)
 
+    def get_x_coords(self,ds,for_case=0):
+        x_dims = ds[self.x_coordinate].dims
+        if self.case_dimension in x_dims:
+            return ds[self.x_coordinate].isel(**{self.case_dimension:for_case}).squeeze()
+        else:
+            return ds[self.x_coordinate]
+
+    def get_y_coords(self,ds,for_case=0):
+        y_dims = ds[self.y_coordinate].dims
+        if self.case_dimension in y_dims:
+            return ds[self.y_coordinate].isel(**{self.case_dimension:for_case}).squeeze()
+        else:
+            return ds[self.y_coordinate]
+
+    def get_image_dimensions(self, ds):
+        x_coords = self.get_x_coords(ds)
+        y_coords = self.get_y_coords(ds)
+        if len(x_coords.shape) == 1 and len(y_coords.shape) == 1:
+            image_height = y_coords.shape[0]
+            image_width = x_coords.shape[0]
+            return (image_width, image_height)
+        else:
+            raise Exception("Unable to determin image dimensions from dataset")
+
     def run(self):
         cases = []
-
-        image_width, image_height = get_image_dimensions(self.input_ds)
+        image_width, image_height = self.get_image_dimensions(self.input_ds)
         n = len(self.input_ds[self.case_dimension])
 
         selected_indexes = list(range(n))
@@ -109,11 +130,16 @@ class Netcdf2HtmlConverter:
             cases.append((i, timestamp, self.input_ds.isel(**{self.case_dimension:i})))
             cases = sorted(cases,key=lambda t:t[0])
 
-        # check the layers
+        # check the layers, removing any that fail
+        remove_layers = []
         for layer_definition in self.layer_definitions:
             err = layer_definition.check(self.input_ds)
             if err:
-                raise Exception(err)
+                print(err)
+                remove_layers.append(layer_definition)
+
+        for layer_definition in remove_layers:
+            self.layer_definitions.remove(layer_definition)
 
         # build the legends
         for layer_definition in self.layer_definitions:
@@ -126,7 +152,7 @@ class Netcdf2HtmlConverter:
         for (index, timestamp, ds) in cases:
             image_srcs = {}
             for layer_definition in self.layer_definitions:
-                (src, path) = self.get_image_path(layer_definition.layer_name, timestamp=timestamp)
+                (src, path) = self.get_image_path(layer_definition.layer_name, index=index)
                 layer_definition.build(ds, path)
                 image_srcs[layer_definition.layer_name] = src
             self.layer_images.append((index, timestamp, image_srcs))
@@ -141,12 +167,13 @@ class Netcdf2HtmlConverter:
         root = builder.body().add_element("div")
 
         container_div = root.add_element("div")
-        overlay_container_div = container_div.add_element("div",{"id":"overlay_container"})
-        grid_container_div = container_div.add_element("div", {"id": "grid_container","style":"display:none;"})
+        overlay_container_div = container_div.add_element("div",{"id":"overlay_container","style":"display:none;"})
+        grid_container_div = container_div.add_element("div", {"id": "grid_container","style":"display:block;"})
 
         self.build_overlay_view(overlay_container_div,builder,image_width,image_height)
         self.build_grid_view(grid_container_div, builder, image_width, image_height)
 
+        print(f"writing {self.output_html_path}")
         with open(self.output_html_path, "w") as f:
             f.write(builder.get_html())
 
