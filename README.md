@@ -7,7 +7,7 @@ Generate static HTML for visualising array data read from a netcdf4 file
 ```
 conda create -n netcdf2html_env python=3.10
 conda activate netcdf2html_env
-conda install netcdf4 xarray matplotlib
+conda install netcdf4 xarray matplotlib requests
 pip install git+https://github.com/surftemp/netcdf2html.git
 ```
 
