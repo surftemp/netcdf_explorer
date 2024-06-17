@@ -43,7 +43,7 @@ css_path = os.path.join(os.path.split(__file__)[0],"index.css")
 
 class Netcdf2HtmlConverter:
 
-    def __init__(self, config, input_ds, output_folder, title, sample_count=None, netcdf_download_filename=""):
+    def __init__(self, config, input_ds, output_folder, title, sample_count=None, sample_cases=None, netcdf_download_filename=""):
         dimensions = config.get("dimensions", {})
         case_dimension = dimensions.get("case", "time")
         x_dimension = dimensions.get("x", "x")
@@ -66,6 +66,7 @@ class Netcdf2HtmlConverter:
         self.output_folder = output_folder
         self.title = title
         self.sample_count = sample_count
+        self.sample_cases = sample_cases
         self.max_zoom = max_zoom
         self.grid_image_width = grid_image_width
         self.netcdf_download_filename = netcdf_download_filename
@@ -80,7 +81,7 @@ class Netcdf2HtmlConverter:
         self.layer_legends = {}
 
         for (layer_name, layer_spec) in config["layers"].items():
-            layer = LayerFactory.create(self, layer_name, layer_spec, self.case_dimension, self.x_coordinate, self.y_coordinate, self.time_coordinate)
+            layer = LayerFactory.create(self, layer_name, layer_spec)
             self.layer_definitions.append(layer)
 
     def get_image_path(self, key, index=None):
@@ -122,6 +123,10 @@ class Netcdf2HtmlConverter:
         n = len(self.input_ds[self.case_dimension])
 
         selected_indexes = list(range(n))
+
+        if self.sample_cases:
+            selected_indexes = self.sample_cases
+
         if self.sample_count:
             selected_indexes = np.random.choice(np.array(selected_indexes),self.sample_count,replace=False).tolist()
 

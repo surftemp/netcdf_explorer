@@ -41,7 +41,7 @@ def save_image_falsecolour(data_red, data_green, data_blue, path):
         minv = np.nanmin(arr)
         maxv = np.nanmax(arr)
         v = (arr - minv) / (maxv - minv)
-        v = np.sqrt(v)
+        v = np.sqrt(v) # this boosts the contrast
         alist.append((255*v).astype(np.uint8))
     arr = np.stack(alist,axis=-1)
     im = Image.fromarray(arr,mode="RGB")
@@ -59,10 +59,9 @@ def save_image_mask(arr, path, r, g, b):
     im.save(path)
 
 
-
 class LayerBase:
 
-    def __init__(self, converter, layer_name, layer_label, selectors={}):
+    def __init__(self, layer, converter, layer_name, layer_label, selectors={}):
         self.layer_name = layer_name
         self.layer_label = layer_label
         self.case_dimension = ""
@@ -73,12 +72,12 @@ class LayerBase:
         self.flipud = False
         self.fliplr = False
         self.converter = converter
-        self.case_dimension = converter.case_dimension
-        self.x_dimension = converter.x_dimension
-        self.y_dimension = converter.y_dimension
-        self.time_coordinate = converter.time_coordinate
-        self.x_coordinate = converter.x_coordinate
-        self.y_coordinate = converter.y_coordinate
+        self.case_dimension = layer.get("dimensions",{}).get("case",converter.case_dimension)
+        self.x_dimension = layer.get("dimensions",{}).get("x",converter.x_dimension)
+        self.y_dimension = layer.get("dimensions",{}).get("y",converter.y_dimension)
+        self.time_coordinate = layer.get("coordinates",{}).get("time",converter.time_coordinate)
+        self.x_coordinate = layer.get("coordinates",{}).get("x",converter.x_coordinate)
+        self.y_coordinate = layer.get("coordinates",{}).get("y",converter.y_coordinate)
 
     def check(self, ds):
         for variable in [self.x_coordinate, self.y_coordinate, self.time_coordinate]:
@@ -118,8 +117,8 @@ class LayerBase:
 
 class LayerRGB(LayerBase):
 
-    def __init__(self, converter, layer_name, layer_label, selectors, red_variable, green_variable, blue_variable):
-        super().__init__(converter, layer_name, layer_label, selectors)
+    def __init__(self, layer, converter, layer_name, layer_label, selectors, red_variable, green_variable, blue_variable):
+        super().__init__(layer, converter, layer_name, layer_label, selectors)
         self.red_variable = red_variable
         self.green_variable = green_variable
         self.blue_variable = blue_variable
@@ -145,8 +144,8 @@ class LayerRGB(LayerBase):
 
 class LayerSingleBand(LayerBase):
 
-    def __init__(self, converter, layer_name, layer_label, selectors, band_name, vmin, vmax, cmap_name):
-        super().__init__(converter, layer_name, layer_label, selectors)
+    def __init__(self, layer, converter, layer_name, layer_label, selectors, band_name, vmin, vmax, cmap_name):
+        super().__init__(layer, converter, layer_name, layer_label, selectors)
         self.band_name = band_name
         self.vmin = vmin
         self.vmax = vmax
@@ -175,8 +174,8 @@ class LayerSingleBand(LayerBase):
 
 class LayerWMS(LayerBase):
 
-    def __init__(self, converter, layer_name, layer_label, wms_url, scale):
-        super().__init__(converter, layer_name, layer_label)
+    def __init__(self, layer, converter, layer_name, layer_label, wms_url, scale):
+        super().__init__(layer, converter, layer_name, layer_label)
         self.wms_url = wms_url
         self.cache = {}
         self.failed = set()
@@ -224,8 +223,8 @@ class LayerWMS(LayerBase):
 
 class LayerMask(LayerBase):
 
-    def __init__(self, converter, layer_name, layer_label, selectors, band_name, r, g, b, mask):
-        super().__init__(converter, layer_name, layer_label, selectors)
+    def __init__(self, layer, converter, layer_name, layer_label, selectors, band_name, r, g, b, mask):
+        super().__init__(layer, converter, layer_name, layer_label, selectors)
         self.band_name = band_name
         self.r = r
         self.g = g
@@ -248,7 +247,7 @@ class LayerMask(LayerBase):
 class LayerFactory:
 
     @staticmethod
-    def create(converter, layer_name, layer, case_dimension, default_x_coordinate, default_y_coordinate, time_coordinate):
+    def create(converter, layer_name, layer):
         layer_type = layer["type"]
         layer_label = layer.get("label", layer_name)
         selectors = layer.get("selectors", {})
@@ -257,23 +256,23 @@ class LayerFactory:
             vmin = layer["min_value"]
             vmax = layer["max_value"]
             cmap = layer.get("cmap", "coolwarm")
-            created_layer = LayerSingleBand(converter, layer_name, layer_label, selectors, layer_band, vmin, vmax, cmap)
+            created_layer = LayerSingleBand(layer, converter, layer_name, layer_label, selectors, layer_band, vmin, vmax, cmap)
         elif layer_type == "mask":
             layer_band = layer.get("band", "")
             r = layer["r"]
             g = layer["g"]
             b = layer["b"]
             mask = layer.get("mask", None)
-            created_layer = LayerMask(converter, layer_name, layer_label, selectors, layer_band, r, g, b, mask)
+            created_layer = LayerMask(layer, converter, layer_name, layer_label, selectors, layer_band, r, g, b, mask)
         elif layer_type == "rgb":
             red_band = layer["red_band"]
             green_band = layer["green_band"]
             blue_band = layer["blue_band"]
-            created_layer = LayerRGB(converter, layer_name, layer_label, selectors, red_band, green_band, blue_band)
+            created_layer = LayerRGB(layer, converter, layer_name, layer_label, selectors, red_band, green_band, blue_band)
         elif layer_type == "wms":
             url = layer["url"]
             scale = layer.get("scale", 1)
-            created_layer = LayerWMS(converter, layer_name, layer_label, url, scale)
+            created_layer = LayerWMS(layer, converter, layer_name, layer_label, url, scale)
         else:
             raise Exception(f"Unknown layer type {layer_type}")
 

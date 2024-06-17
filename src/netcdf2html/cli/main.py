@@ -62,6 +62,8 @@ def main():
 
     parser.add_argument("--sample-count", type=int, default=None,
                         help="randomly sample this many cases for display")
+    parser.add_argument("--sample-cases", nargs="+", type=int, default=None,
+                        help="display these sample cases (provide their indices, starting at 0)")
     args = parser.parse_args()
 
     input_ds = xr.open_dataset(args.input_path)
@@ -69,7 +71,7 @@ def main():
     with open(args.config_path) as f:
         stripped = strip_json5_comments(f.read())
         config = json.loads(stripped)
-        c = Netcdf2HtmlConverter(config, input_ds, os.path.abspath(args.output_folder), args.title, sample_count=args.sample_count, netcdf_download_filename=args.netcdf_download_filename)
+        c = Netcdf2HtmlConverter(config, input_ds, os.path.abspath(args.output_folder), args.title, sample_count=args.sample_count, sample_cases=args.sample_cases, netcdf_download_filename=args.netcdf_download_filename)
 
     c.run()
 

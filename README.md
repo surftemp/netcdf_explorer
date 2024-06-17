@@ -31,11 +31,21 @@ You will need to define a JSON file which maps variables in the input dataset to
 
 This [commented example configuration file](src/netcdf2html/cli/example_layers.json5) should explain how the configuration file works
 
+## common command line options
+
+| option          | description                                                             | example                   |
+|-----------------|-------------------------------------------------------------------------|---------------------------|
+ | --title         | specify a title to display at the top of the page                       | --title "My Title"        |
+ | --input-path    | specify the path of a netcdf4 file containing the input data            | --input-path input.nc     |
+ | --config-path   | specify the path of a JSON file containing the configuration            | --config-path config.json | 
+ | --output-folder | specify output folder into which index.html and image files are written | --output-folder html_out  | 
+
 ## other command line options
 
-| option                     | description                          | example                              |
-|----------------------------|--------------------------------------|--------------------------------------|
- | --sample-count             | limit the number of cases to display | --sample-count 100                   |
- | --netcdf-download-filename | provide a link to download the data  | --netcdf-download-filename area97.nc | 
+| option                     | description                           | example                              |
+|----------------------------|---------------------------------------|--------------------------------------|
+ | --sample-count             | limit the number of cases to display  | --sample-count 100                   |
+ | --sample-cases             | specify which cases to display        | --sample-cases 4 10 12               |
+ | --netcdf-download-filename | provide a link to download the data   | --netcdf-download-filename area97.nc | 
 
 
