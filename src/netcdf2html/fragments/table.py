@@ -20,6 +20,10 @@ class TableFragment(ElementFragment):
     def __init__(self, attrs={},style={}):
         super().__init__("table",attrs,style)
 
+    def set_column_ids(self, column_ids):
+        for column_id in column_ids:
+            self.add_element("col",{"id":column_id})
+
     def add_row(self, cells):
         tr = self.add_element("tr")
         for cell in cells:

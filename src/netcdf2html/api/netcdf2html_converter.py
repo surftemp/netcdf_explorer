@@ -24,12 +24,11 @@ import os
 import xarray as xr
 import shutil
 import json
-import random
 import numpy as np
 
 from .layers import LayerFactory
 
-from netcdf2html.htmlfive.html5_builder import Html5Builder, RawFragment
+from netcdf2html.htmlfive.html5_builder import Html5Builder, ElementFragment
 
 from netcdf2html.fragments.utils import anti_aliasing_style
 from netcdf2html.fragments.image import ImageFragment
@@ -80,9 +79,36 @@ class Netcdf2HtmlConverter:
         self.layer_images = []
         self.layer_legends = {}
 
+        self.input_ds = self.reduce_coordinate_dimension(self.input_ds,self.x_coordinate, self.case_dimension)
+        self.input_ds = self.reduce_coordinate_dimension(self.input_ds,self.y_coordinate, self.case_dimension)
+
         for (layer_name, layer_spec) in config["layers"].items():
             layer = LayerFactory.create(self, layer_name, layer_spec)
             self.layer_definitions.append(layer)
+
+    def reduce_coordinate_dimension(self, ds, coordinate_name, case_dimension):
+        dims = ds[coordinate_name].dims
+        ndims = len(dims)
+        if case_dimension in dims:
+            ndims -= 1
+        if ndims == 1:
+            return ds # already 1-dimensional
+        if ndims == 2:
+            if case_dimension in dims:
+                raise Exception(f"Unable to make spatial coordinate {coordinate_name} 1-dimensional")
+
+            # coordinate is 2 dimensional, see if it can be reduced to 1 dimensional
+            da = ds[coordinate_name]
+            arr = da.data
+            if np.alltrue(arr[0,:]==arr[-1,:]):
+                # assume all rows are identical if first and last rows are
+                ds[coordinate_name] = xr.DataArray(arr[0,:],dims=(da.dims[1],),attrs=da.attrs)
+                return ds
+            if np.alltrue(arr[:,0]==arr[:,-1]):
+                # assume all columns are identical if first and last columns are
+                ds[coordinate_name] = xr.DataArray(arr[:,0],dims=(da.dims[0],),attrs=da.attrs)
+                return ds
+        raise Exception(f"Unable to make spatial coordinate {coordinate_name} 1-dimensional")
 
     def get_image_path(self, key, index=None):
         if index is not None:
@@ -197,6 +223,12 @@ class Netcdf2HtmlConverter:
         
         tf = TableFragment()
 
+        column_ids = ["index_col","time_col"]
+        for layer_definition in self.layer_definitions[::-1]:
+            columm_id = layer_definition.layer_name + "_col"
+            column_ids.append(columm_id)
+        tf.set_column_ids(column_ids)
+
         header_cells = ["Index","Time"]
         for layer_definition in self.layer_definitions[::-1]:
             if layer_definition.layer_name in self.layer_legends:
@@ -208,6 +240,11 @@ class Netcdf2HtmlConverter:
             else:
                 header_cells.append(layer_definition.layer_label)
         tf.add_header_row(header_cells)
+
+        button_cells = ["", ""]
+        for layer_definition in self.layer_definitions[::-1]:
+            button_cells.append(ElementFragment("button",{"id": layer_definition.layer_name+"_hide"}).add_text("Hide"))
+        tf.add_row(button_cells)
 
         for (index, timestamp, layer_sources) in self.layer_images:
             cells = [str(index), timestamp]

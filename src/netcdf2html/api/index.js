@@ -69,6 +69,7 @@ function show() {
 }
 
 function boot() {
+
    let next_button = document.getElementById("next_btn");
    let time_range= document.getElementById("time_index");
    let prev_button = document.getElementById("prev_btn");
@@ -174,7 +175,33 @@ function boot() {
          r.value = "0";
       });
    });
+
+   const params = new URLSearchParams(window.location.search);
+   if (params.has('initial_view')) {
+      const initial_view = params.get('initial_view');
+      if (initial_view=='overlay') {
+         grid_container.style.display = "none";
+         overlay_container.style.display = "block";
+      }
+      if (initial_view=='grid') {
+         grid_container.style.display = "block";
+         overlay_container.style.display = "none";
+      }
+   }
+
+   const make_hide_column_callback = (col_id) => {
+      return () => {
+         document.getElementById(col_id).style.visibility = "collapse";
+      }
+   }
+
+   layer_list.forEach(layer => {
+      let col_id = layer.name+"_col";
+      let hide_btn = layer.name+"_hide";
+      document.getElementById(hide_btn).addEventListener("click", make_hide_column_callback(col_id));
+   });
 }
+
 
 function setup_drag(elt, header_elt, initial_top, initial_left) {
   var startx, starty, dx, dy;

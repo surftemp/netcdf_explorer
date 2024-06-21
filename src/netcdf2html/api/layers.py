@@ -28,6 +28,8 @@ from PIL import Image
 from matplotlib import cm
 import numpy as np
 
+from .colours import colours_to_rgb
+
 def save_image(arr,vmin,vmax,path,cmap_name="coolwarm"):
     if not hasattr(cm,cmap_name):
         raise ValueError("Unknown colour map: " + cmap_name)
@@ -47,7 +49,9 @@ def save_image_falsecolour(data_red, data_green, data_blue, path):
     im = Image.fromarray(arr,mode="RGB")
     im.save(path)
 
-def save_image_mask(arr, path, r, g, b):
+def save_image_mask(arr, path, r, g, b, mask):
+    if mask is not None:
+        arr = np.bitwise_and(arr,mask)
     alist = []
     a = np.zeros(arr.shape)
     alist.append((a + r).astype(np.uint8))
@@ -235,14 +239,14 @@ class LayerMask(LayerBase):
         return False
 
     def check(self, ds):
+        err = super().check(ds)
+        if err:
+            return err
         if self.band_name not in ds:
             return f"No variable {self.band_name}"
 
     def build(self,ds,path):
-        da = ds[self.band_name].astype(int)
-        if self.mask:
-            da = da & self.mask
-        save_image_mask(self.get_data(da), path, self.r, self.g, self.b)
+        save_image_mask(self.get_data(ds[self.band_name].astype(int)), path, self.r, self.g, self.b, self.mask)
 
 class LayerFactory:
 
@@ -252,16 +256,27 @@ class LayerFactory:
         layer_label = layer.get("label", layer_name)
         selectors = layer.get("selectors", {})
         if layer_type == "single":
-            layer_band = layer.get("band", "")
+            layer_band = layer.get("band", layer_name)
             vmin = layer["min_value"]
             vmax = layer["max_value"]
             cmap = layer.get("cmap", "coolwarm")
             created_layer = LayerSingleBand(layer, converter, layer_name, layer_label, selectors, layer_band, vmin, vmax, cmap)
         elif layer_type == "mask":
-            layer_band = layer.get("band", "")
-            r = layer["r"]
-            g = layer["g"]
-            b = layer["b"]
+            layer_band = layer.get("band", layer_name)
+            if "colour" in layer:
+                colour = layer["colour"]
+                if colour in colours_to_rgb:
+                    rgb = colours_to_rgb[layer["colour"]]
+                    r = rgb["r"]
+                    g = rgb["g"]
+                    b = rgb["b"]
+                else:
+                    raise Exception(f"Unknown colour {colour}")
+            else:
+                r = layer.get("r",0)
+                g = layer.get("g",0)
+                b = layer.get("b",0)
+
             mask = layer.get("mask", None)
             created_layer = LayerMask(layer, converter, layer_name, layer_label, selectors, layer_band, r, g, b, mask)
         elif layer_type == "rgb":

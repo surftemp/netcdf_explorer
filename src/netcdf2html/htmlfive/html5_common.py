@@ -20,7 +20,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-void_elements = "area,base,br,col,embed,hr,img,input,link,meta,param,source,track,wbr".split(",")
+void_elements = "area,base,br,embed,hr,img,input,link,meta,param,source,track,wbr".split(",")
 require_end_tags = "script,style,form,ins,del,rt,pre,meter,textarea".split(",")
 
 HTML5_DOCTYPE = "<!DOCTYPE html>"

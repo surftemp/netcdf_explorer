@@ -66,7 +66,7 @@ class ImageFragment(ElementFragment):
 
     def __init__(self, src, id, alt_text="", w=None, h=None):
         super().__init__("img", prepare_attrs({
-            "src": src, "alt":alt_text, "id":id, "width": w, "height": h}))
+            "src": src, "alt":alt_text, "id":id, "width": w, "height": h, "loading":"lazy"}))
 
 
 def inlined_image(from_path,mime_type="image/png"):
