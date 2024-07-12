@@ -25,6 +25,7 @@
     // the type is one of the following:
     //     type=mask: layer represents an integer variable containing a bit mask
     //     type=single: layer represents a variable containing a continuous quantity
+    //     type=discrete: layer represents a variable containing a discretel quantity
     //     type=rgb: layer represents a false colour depiction of three variables
     //     type=wms: layer represents a WMS image obtained from a specified WMS service
     //

@@ -28,7 +28,9 @@ from PIL import Image
 from matplotlib import cm
 import numpy as np
 
-from .colours import colours_to_rgb
+from .data_encoder import DataEncoder
+
+from .colours import colours_to_rgb, ColoursToRGB
 
 def save_image(arr,vmin,vmax,path,cmap_name="coolwarm"):
     if not hasattr(cm,cmap_name):
@@ -62,6 +64,22 @@ def save_image_mask(arr, path, r, g, b, mask):
     im = Image.fromarray(rgba_arr, mode="RGBA")
     im.save(path)
 
+def save_image_discrete(arr,path,values):
+    lookup = {}
+    for (k,v) in values.items():
+        (label,colour) = v
+        k = int(k)
+        lookup[k] = ColoursToRGB.lookup(colour)+[255]
+
+    def get_rgba(value):
+        key = int(value)
+        if key not in lookup:
+            return np.array([0,0,0,255])
+        else:
+            return np.array(lookup[key])
+
+    im = Image.fromarray(np.uint8((np.vectorize(get_rgba,signature='()->(n)')(arr))),mode="RGBA")
+    im.save(path)
 
 class LayerBase:
 
@@ -118,6 +136,9 @@ class LayerBase:
             arr = np.fliplr(arr)
         return arr
 
+    def save_data(self):
+        return False
+
 
 class LayerRGB(LayerBase):
 
@@ -148,12 +169,13 @@ class LayerRGB(LayerBase):
 
 class LayerSingleBand(LayerBase):
 
-    def __init__(self, layer, converter, layer_name, layer_label, selectors, band_name, vmin, vmax, cmap_name):
+    def __init__(self, layer, converter, layer_name, layer_label, selectors, band_name, vmin, vmax, cmap_name, data):
         super().__init__(layer, converter, layer_name, layer_label, selectors)
         self.band_name = band_name
         self.vmin = vmin
         self.vmax = vmax
         self.cmap_name = cmap_name
+        self.data = data
 
     def check(self, ds):
         err = super().check(ds)
@@ -175,6 +197,13 @@ class LayerSingleBand(LayerBase):
             a[:,i] = self.vmin + (i/legend_width) * (self.vmax-self.vmin)
         save_image(a, self.vmin, self.vmax, path, self.cmap_name)
 
+    def save_data(self):
+        return self.data is not None
+
+    def build_data(self,ds,path):
+        de = DataEncoder()
+        de.encode(self.get_data(ds[self.band_name]), path)
+        return self.data
 
 class LayerWMS(LayerBase):
 
@@ -248,6 +277,31 @@ class LayerMask(LayerBase):
     def build(self,ds,path):
         save_image_mask(self.get_data(ds[self.band_name].astype(int)), path, self.r, self.g, self.b, self.mask)
 
+class ImageLayerDiscrete(LayerBase):
+
+    def __init__(self, layer, converter, layer_name, layer_label, selectors, band_name, values):
+        super().__init__(layer, converter, layer_name, layer_label, selectors)
+        self.band_name = band_name
+        self.values = values
+
+    def check(self, ds):
+        err = super().check(ds)
+        if err:
+            return err
+        if self.band_name not in ds:
+            return f"No variable {self.band_name}"
+        for (k,v) in self.values.items():
+            (label,color) = v
+            rgb = ColoursToRGB.lookup(color)
+            if rgb is None:
+                return f"Invalid colour {color}"
+
+    def build(self,ds,path):
+        save_image_discrete(self.get_data(ds[self.band_name]), path, self.values)
+
+    def has_legend(self):
+        return False
+
 class LayerFactory:
 
     @staticmethod
@@ -260,7 +314,8 @@ class LayerFactory:
             vmin = layer["min_value"]
             vmax = layer["max_value"]
             cmap = layer.get("cmap", "coolwarm")
-            created_layer = LayerSingleBand(layer, converter, layer_name, layer_label, selectors, layer_band, vmin, vmax, cmap)
+            data = layer.get("data", None)
+            created_layer = LayerSingleBand(layer, converter, layer_name, layer_label, selectors, layer_band, vmin, vmax, cmap, data)
         elif layer_type == "mask":
             layer_band = layer.get("band", layer_name)
             if "colour" in layer:
@@ -284,6 +339,10 @@ class LayerFactory:
             green_band = layer["green_band"]
             blue_band = layer["blue_band"]
             created_layer = LayerRGB(layer, converter, layer_name, layer_label, selectors, red_band, green_band, blue_band)
+        elif layer_type == "discrete":
+            layer_band = layer.get("band", layer_name)
+            values = layer["values"]
+            created_layer = ImageLayerDiscrete(layer, converter, layer_name, layer_label, selectors, layer_band, values)
         elif layer_type == "wms":
             url = layer["url"]
             scale = layer.get("scale", 1)

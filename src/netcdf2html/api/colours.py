@@ -28,3 +28,20 @@ colours_to_rgb = {
     "gray": { "r": 128, "g": 128, "b": 128 },
     "black": { "r": 0, "g": 0, "b": 0 }
 }
+
+class ColoursToRGB:
+
+    def __init__(self):
+        pass
+
+    @staticmethod
+    def lookup(colour):
+        if colour in colours_to_rgb:
+            d = colours_to_rgb[colour]
+            return [d["r"],d["g"],d["b"]]
+        if colour.startswith("#") and len(colour)==7:
+            r = int(colour[1:3], 16)
+            g = int(colour[3:5], 16)
+            b = int(colour[5:7], 16)
+            return [r,g,b]
+        return None

@@ -52,3 +52,13 @@ td {
 th, td {
    padding: 10px;
 }
+
+#legend_controls {
+    max-height: 600px;
+    overflow: scroll;
+}
+
+#tooltip {
+    background-color: white;
+    border: 15px;
+}
