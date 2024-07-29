@@ -25,6 +25,10 @@ import xarray as xr
 import shutil
 import json
 import numpy as np
+from mako.template import Template
+import pyproj
+import logging
+import copy
 
 from .layers import LayerFactory
 
@@ -35,7 +39,7 @@ from netcdf2html.fragments.image import ImageFragment
 from netcdf2html.fragments.table import TableFragment
 from netcdf2html.fragments.legend import LegendFragment
 
-js_path = os.path.join(os.path.split(__file__)[0], "index.js")
+js_paths = [os.path.join(os.path.split(__file__)[0], "data_image.js"), os.path.join(os.path.split(__file__)[0], "html_view.js")]
 css_path = os.path.join(os.path.split(__file__)[0], "index.css")
 
 
@@ -51,9 +55,13 @@ class Netcdf2HtmlConverter:
         x_coordinate = coordinates.get("x", "x")
         y_coordinate = coordinates.get("y", "y")
         time_coordinate = coordinates.get("time", "")
+        info = config.get("info",{})
         image = config.get("image", {})
         max_zoom = image.get("max-zoom", None)
         grid_image_width = image.get("grid-width", None)
+        crs = config.get("crs",None)
+        labels = config.get("labels",None)
+        group = config.get("group",None)
 
         self.case_dimension = case_dimension
         self.x_dimension = x_dimension
@@ -71,6 +79,11 @@ class Netcdf2HtmlConverter:
         self.netcdf_download_filename = netcdf_download_filename
         self.output_html_path = os.path.join(output_folder, "index.html")
         self.filter_controls = filter_controls
+        self.info = info
+        self.crs = crs
+        self.labels = labels
+        self.logger = logging.getLogger("netcdf2html")
+        self.group = group
 
         image_folder = os.path.join(self.output_folder, "images")
         os.makedirs(image_folder, exist_ok=True)
@@ -78,7 +91,14 @@ class Netcdf2HtmlConverter:
         data_folder = os.path.join(self.output_folder, "data")
         os.makedirs(data_folder, exist_ok=True)
 
-        shutil.copyfile(js_path, os.path.join(self.output_folder, "index.js"))
+        js_code = ""
+        for js_path in js_paths:
+            with open(js_path) as f:
+                js_code += f.read()
+
+        with open(os.path.join(self.output_folder, "index.js"), "w") as f:
+            f.write(js_code)
+
         shutil.copyfile(css_path, os.path.join(self.output_folder, "index.css"))
         self.layer_definitions = []
 
@@ -92,6 +112,7 @@ class Netcdf2HtmlConverter:
         for (layer_name, layer_spec) in config["layers"].items():
             layer = LayerFactory.create(self, layer_name, layer_spec)
             self.layer_definitions.append(layer)
+
 
     def reduce_coordinate_dimension(self, ds, coordinate_name, case_dimension):
         dims = ds[coordinate_name].dims
@@ -154,7 +175,63 @@ class Netcdf2HtmlConverter:
             image_width = x_coords.shape[0]
             return (image_width, image_height)
         else:
-            raise Exception("Unable to determin image dimensions from dataset")
+            raise Exception("Unable to determine image dimensions from dataset")
+
+    def generate_label_buttons(self):
+        d = ElementFragment("div")
+        d.add_fragment(ElementFragment("a",attrs={"href":"", "download":"labels.json","id":"download_labels_btn"}).add_text("download"))
+        return d
+
+    def get_label_control_id(self, for_group, for_label, for_index=None):
+        # obtain the expected id for a label control
+        if for_index is not None:
+            return f"radio_{for_group}_{for_label}_{for_index}"
+        else:
+            return f"radio_{for_group}_{for_label}"
+
+    def generate_label_controls(self, index=None):
+        d = ElementFragment("div")
+        for label_group in self.labels:
+            fieldset = ElementFragment("fieldset", style={"width":str(self.grid_image_width)+"px"})
+            legend = ElementFragment("legend").add_text(label_group)
+            fieldset.add_fragment(legend)
+            group = "label_group_" + label_group
+            if index is not None:
+                group += "_" + str(index)
+
+            for label in self.labels[label_group]:
+                control_id = self.get_label_control_id(label_group,label,index)
+                i = ElementFragment("input",attrs={"type":"radio","name":group,"value":label,"id":control_id})
+                l = ElementFragment("label",attrs={"for":control_id}).add_text(label)
+                i.add_fragment(l)
+                fieldset.add_fragment(i)
+            d.add_fragment(fieldset)
+        return d
+
+    def generate_info_table(self, index, ds):
+        d = self.generate_info_dict(index, ds)
+        tf = TableFragment(attrs={"class":"info_table"},style={"width":"%dpx"%self.grid_image_width})
+        for (key,value) in d.items():
+            tf.add_row([key,value])
+        ef = ElementFragment("button", attrs={"class": "info_table"},style={"max-height":"%dpx"%self.grid_image_width}).add_fragment(tf)
+        return ef
+
+    def generate_info_dict(self, index, ds):
+        d = {}
+        variables = { "data": ds, "index":index }
+        if self.crs:
+            transformer = pyproj.Transformer.from_crs(self.crs, "EPSG:4326", always_xy=True)
+            lon, lat = transformer.transform(ds[self.x_coordinate].mean().item(), ds[self.y_coordinate].mean().item())
+            variables["lon"] = lon
+            variables["lat"] = lat
+
+        for (key,value) in self.info.items():
+            template = Template(value)
+            try:
+                d[key] = template.render(**variables)
+            except:
+                self.logger.exception(f"Unable to render info for key: {key}")
+        return d
 
     def run(self):
         cases = []
@@ -173,7 +250,7 @@ class Netcdf2HtmlConverter:
         for layer_definition in self.layer_definitions:
             err = layer_definition.check(self.input_ds)
             if err:
-                print(err)
+                self.logger.error(f"Unable to add layer {layer_definition.layer_name}: {err}")
                 remove_layers.append(layer_definition)
 
         for layer_definition in remove_layers:
@@ -187,9 +264,16 @@ class Netcdf2HtmlConverter:
                 self.layer_legends[layer_definition.layer_name] = legend_src
 
         # build the images and data
+        label_values = None
+        if self.labels:
+            label_values = { "case_dimension": self.case_dimension, "values": {}, "schema": copy.deepcopy(self.labels)}
+            if self.netcdf_download_filename:
+                label_values["netcdf_filename"] = self.netcdf_download_filename
+
         for (index, timestamp, ds) in cases:
             image_srcs = {}
             data_srcs = {}
+
             for layer_definition in self.layer_definitions:
                 (src, path) = self.get_image_path(layer_definition.layer_name, index=index)
                 layer_definition.build(ds, path)
@@ -199,7 +283,15 @@ class Netcdf2HtmlConverter:
                     data_options = layer_definition.build_data(ds, data_path)
                     data_srcs[layer_definition.layer_name] = {"url":data_src, "options":data_options}
 
-            self.layer_images.append((index, timestamp, image_srcs, data_srcs))
+            if self.labels:
+                for label_group in self.labels:
+                    if label_group in ds:
+                        if label_group not in label_values["values"]:
+                            label_values["values"][label_group] = []
+                        label_values["values"][label_group].append(ds[label_group].item())
+
+
+            self.layer_images.append((index, timestamp, image_srcs, data_srcs, ds))
 
         builder = Html5Builder(language="en")
 
@@ -212,21 +304,49 @@ class Netcdf2HtmlConverter:
 
         container_div = root.add_element("div")
         overlay_container_div = container_div.add_element("div", {"id": "overlay_container", "style": "display:none;"})
-        grid_container_div = container_div.add_element("div", {"id": "grid_container", "style": "display:block;"})
+        grid_container_div = container_div.add_element("div", {"id": "grid_container", "style": "display:none;"})
 
         self.build_overlay_view(overlay_container_div, builder, image_width, image_height)
         self.build_grid_view(grid_container_div, builder, image_width, image_height)
 
-        print(f"writing {self.output_html_path}")
+        scenes = { "layers":[], "index": [] }
+
+        for layer_definition in self.layer_definitions:
+            scenes["layers"].insert(0, {"name": layer_definition.layer_name, "label": layer_definition.layer_label})
+
+        for (index, timestamp, layer_sources, data_sources, ds) in self.layer_images:
+
+            info = {}
+            if self.info:
+                info = self.generate_info_dict(index, ds)
+
+            scenes["index"].append({"timestamp": timestamp if timestamp is not None else "", "image_srcs": layer_sources,
+                               "data_srcs": data_sources, "info": info, "pos":index})
+
+        with open(os.path.join(self.output_folder, "scenes.json"), "w") as f:
+            f.write(json.dumps(scenes,indent=4))
+
+        builder.head().add_element("script").add_text("let image_width=" + json.dumps(image_width) + ";")
+
+        self.logger.info(f"writing {self.output_html_path}")
         with open(self.output_html_path, "w") as f:
             f.write(builder.get_html())
 
         if self.netcdf_download_filename:
             self.input_ds.to_netcdf(os.path.join(self.output_folder, self.netcdf_download_filename))
 
+        if label_values:
+            with open(os.path.join(self.output_folder, "labels.json"),"w") as f:
+                f.write(json.dumps(label_values, indent=4))
+
+        os.makedirs(os.path.join(self.output_folder, "service_info"), exist_ok=True)
+        with open(os.path.join(self.output_folder, "service_info", "services.json"), "w") as f:
+            f.write(json.dumps({}, indent=4))
+
     def build_grid_view(self, grid_container_div, builder, image_width, image_height):
         grid_container_div.add_element("input",
                                        {"type": "button", "id": "overlay_view_btn", "value": "Show Overlay View"})
+
         grid_container_div.add_element("span").add_text(self.title)
 
         if self.netcdf_download_filename:
@@ -237,13 +357,22 @@ class Netcdf2HtmlConverter:
 
         tf = TableFragment()
 
-        column_ids = ["index_col", "time_col"]
+        column_ids = ["index_col"]
+        if self.info:
+            column_ids += ["info"]
+        if self.labels:
+            column_ids += ["labels"]
+
         for layer_definition in self.layer_definitions[::-1]:
             columm_id = layer_definition.layer_name + "_col"
             column_ids.append(columm_id)
         tf.set_column_ids(column_ids)
 
-        header_cells = ["Index", "Time"]
+        header_cells = ["Index"]
+        if self.info:
+            header_cells.append("Info")
+        if self.labels:
+            header_cells.append("Labels")
         for layer_definition in self.layer_definitions[::-1]:
             if layer_definition.layer_name in self.layer_legends:
                 img = ImageFragment(self.layer_legends[layer_definition.layer_name],
@@ -256,14 +385,30 @@ class Netcdf2HtmlConverter:
                 header_cells.append(layer_definition.layer_label)
         tf.add_header_row(header_cells)
 
-        button_cells = ["", ""]
+        button_cells = [""]
+        if self.info:
+            button_cells.append("")
+        if self.labels:
+            button_cells.append(self.generate_label_buttons())
+
         for layer_definition in self.layer_definitions[::-1]:
             button_cells.append(
                 ElementFragment("button", {"id": layer_definition.layer_name + "_hide"}).add_text("Hide"))
         tf.add_row(button_cells)
 
-        for (index, timestamp, layer_sources, _) in self.layer_images:
-            cells = [str(index), timestamp if timestamp is not None else "?"]
+        current_group_label = ""
+        for (index, timestamp, layer_sources, _, ds) in self.layer_images:
+            if self.group:
+                template = Template(self.group)
+                group_label = template.render(**{"data":ds})
+                if group_label != current_group_label:
+                    tf.add_row(group_label)
+                current_group_label = group_label
+            cells = [self.generate_index_cell(index)]
+            if self.info:
+                cells += [self.generate_info_table(index,ds)]
+            if self.labels:
+                cells += [self.generate_label_controls(index)]
             for layer_definition in self.layer_definitions[::-1]:
                 src = layer_sources[layer_definition.layer_name]
                 img = ImageFragment(src, layer_definition.layer_name + "_grid_" + str(index), alt_text=timestamp,
@@ -272,6 +417,9 @@ class Netcdf2HtmlConverter:
             tf.add_row(cells)
 
         grid_container_div.add_fragment(tf)
+
+    def generate_index_cell(self, index):
+        return ElementFragment("button",attrs={"id":f"open_{index}_btn"}).add_text("Open: "+str(index))
 
     def build_overlay_view(self, overlay_container_div, builder, image_width, image_height):
 
@@ -317,6 +465,15 @@ class Netcdf2HtmlConverter:
             overlay_container_div.add_element("input",
                 {"type": "checkbox", "id": "show_filters", "checked": "checked"}).add_text("Show Filters")
 
+        if self.info:
+            overlay_container_div.add_element("input",
+                                               {"type": "checkbox", "id": "show_info",
+                                                "checked": "checked"}).add_text("Show Info")
+        if self.labels:
+            overlay_container_div.add_element("input",
+                                              {"type": "checkbox", "id": "show_labels",
+                                               "checked": "checked"}).add_text("Show Labels")
+
         controls_div = overlay_container_div.add_element("div", {"id": "layer_container", "class": "control_container"})
         controls_div.add_element("div", {"id": "layer_container_header", "class": "control_container_header"}).add_text(
             "Layers")
@@ -326,7 +483,7 @@ class Netcdf2HtmlConverter:
         slider_container = slider_fieldset.add_element("div", {"id": "legend_controls"})
         slider_table = slider_container.add_element("table", {"id": "slider_controls"})
         slider_container.add_element("input", {"type": "button", "id": "close_all_sliders", "value": "Hide All Layers"})
-        layer_list = []
+
 
         for layer_definition in self.layer_definitions:
             row = slider_table.add_element("tr")
@@ -336,7 +493,7 @@ class Netcdf2HtmlConverter:
             col1.add_text(layer_definition.layer_label)
             opacity_control_id = layer_definition.layer_name + "_opacity"
             col2.add_element("input", {"type": "range", "id": opacity_control_id})
-            layer_list.insert(0, {"name": layer_definition.layer_name, "opacity_control_id": opacity_control_id})
+
             if layer_definition.has_legend():
                 legend_src = self.layer_legends[layer_definition.layer_name]
                 col3.add_element("span").add_text(str(layer_definition.vmin))
@@ -358,35 +515,30 @@ class Netcdf2HtmlConverter:
                 month_filter.add_element("span").add_text(month_name)
                 month_filter.add_element("input", {"id": f"month{month + 1}", "type": "checkbox", "checked": "checked"})
 
+        if self.info:
+            info_div = overlay_container_div.add_element("div",
+                                                           {"id": "info_container", "class": "control_container"})
+            info_div.add_element("div",
+                                   {"id": "info_container_header", "class": "control_container_header"}).add_text(
+                "Scene Info")
+
+            info_div.add_element("div", attrs={"id":"info_content"})
+
+        if self.labels:
+            labels_div = overlay_container_div.add_element("div",
+                                                           {"id": "labels_container", "class": "control_container"})
+            labels_div.add_element("div",
+                                   {"id": "labels_container_header", "class": "control_container_header"}).add_text(
+                "Labels")
+
+            labels_div.add_fragment(self.generate_label_controls(None))
+
         self.layer_definitions.reverse()
 
         image_container = overlay_container_div.add_element("div")
 
-        time_index = []
-
-        counter = 0
-
         image_div = image_container.add_element("div", {"id": "image_div", "class": "image_holder"})
+        for layer_definition in self.layer_definitions:
+            image_div.add_fragment(ImageFragment("", layer_definition.layer_name))
 
-        first_slice = True
-        layers = []
-
-        for (index, timestamp, layer_sources, data_sources) in self.layer_images:
-            counter += 1
-            for layer_definition in self.layer_definitions:
-                src = layer_sources[layer_definition.layer_name]
-
-                if first_slice:
-                    image_div.add_fragment(ImageFragment(src, layer_definition.layer_name, alt_text=timestamp))
-                    layers.insert(0, {"name": layer_definition.layer_name, "label": layer_definition.layer_label})
-
-            time_index.append({"timestamp": timestamp if timestamp is not None else "", "image_srcs": layer_sources,
-                               "layers": layers, "data_srcs": data_sources})
-            first_slice = False
-
-
-
-        builder.head().add_element("script").add_text("let all_time_index=" + json.dumps(time_index) + ";")
-        builder.head().add_element("script").add_text("let layer_list=" + json.dumps(layer_list) + ";")
-        builder.head().add_element("script").add_text("let image_width=" + json.dumps(image_width) + ";")
         builder.body().add_element("span",{"id":"tooltip"})

@@ -18,6 +18,7 @@
     "grid-width": 250,  // the width of the images presented in the grid view
     "max-zoom": 10      // the maximum zoom allowed in overlay view
   },
+  "labels": ["red","green","blue"],
   // specify the layers
   "layers": {
     // layer objects all have a type and label attribute

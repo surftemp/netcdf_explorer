@@ -21,6 +21,6 @@
 # SOFTWARE.
 
 void_elements = "area,base,br,embed,hr,img,input,link,meta,param,source,track,wbr".split(",")
-require_end_tags = "script,style,form,ins,del,rt,pre,meter,textarea".split(",")
+require_end_tags = "script,style,form,ins,del,rt,pre,meter,textarea,div".split(",")
 
 HTML5_DOCTYPE = "<!DOCTYPE html>"

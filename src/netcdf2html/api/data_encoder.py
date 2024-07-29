@@ -9,4 +9,4 @@ class DataEncoder:
         with open(path,"wb") as f:
             height, width = arr.shape
             dim_arr = np.array([height,width],dtype="<i4")
-            f.write(gzip.compress(dim_arr.tobytes()+arr.tobytes()))
+            f.write(gzip.compress(dim_arr.tobytes()+arr.astype("<f4").tobytes()))

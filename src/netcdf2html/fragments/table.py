@@ -26,12 +26,15 @@ class TableFragment(ElementFragment):
 
     def add_row(self, cells):
         tr = self.add_element("tr")
-        for cell in cells:
-            td = tr.add_element("td")
-            if isinstance(cell,str):
-                td.add_text(cell)
-            else:
-                td.add_fragment(cell)
+        if isinstance(cells,str):
+            tr.add_element("td",attrs={"colspan":"100%"}).add_text(cells)
+        else:
+            for cell in cells:
+                td = tr.add_element("td")
+                if isinstance(cell,str):
+                    td.add_text(cell)
+                else:
+                    td.add_fragment(cell)
 
     def add_header_row(self, cells):
         tr = self.add_element("tr")

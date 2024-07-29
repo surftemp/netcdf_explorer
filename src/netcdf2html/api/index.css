@@ -62,3 +62,12 @@ th, td {
     background-color: white;
     border: 15px;
 }
+
+.info_table * {
+    border: 1px solid black;
+    border-collapse: collapse;
+}
+
+.info_table {
+    overflow-y: scroll;
+}
