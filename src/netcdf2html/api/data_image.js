@@ -1,13 +1,15 @@
+var cmap = new CMap("cmaps");
+
 class DataImage {
 
-    constructor(cmap) {
-        this.cmap = cmap;
+    constructor() {
         this.height = null;
         this.width = null;
         this.data_layers = {};
         this.layer_options = {};
         this.ele = null;
-        this.listener = null;
+        this.mouseover_listener = null;
+        this.mouseout_listener = null;
         this.zoom = 1;
     }
 
@@ -59,7 +61,7 @@ class DataImage {
         for(let x=0; x<width; x++) {
             let v = vmin + ((x+0.5)/(width))*(vmax-vmin);
             for(let y=0; y<height; y++) {
-                let rgb = this.cmap.get_rgb(cmap_name,vmin,vmax,v);
+                let rgb = cmap.get_rgb(cmap_name,vmin,vmax,v);
                 ctx.fillStyle="rgb("+255*rgb[0]+","+255*rgb[1]+","+255*rgb[2]+")";
                 ctx.fillRect(x,y,1,1);
             }
@@ -76,7 +78,7 @@ class DataImage {
         for(let y=0; y<this.height; y++) {
             for(let x=0; x<this.width; x++) {
                 let v = data[y][x];
-                let rgb = this.cmap.get_rgb(cmap_name,vmin,vmax,v);
+                let rgb = cmap.get_rgb(cmap_name,vmin,vmax,v);
                 ctx.fillStyle="rgb("+255*rgb[0]+","+255*rgb[1]+","+255*rgb[2]+")";
                 ctx.fillRect(x,y,1,1);
             }
@@ -157,3 +159,4 @@ class DataImage {
         img_ele.addEventListener("mouseout",this.mouseout_listener);
     }
 }
+

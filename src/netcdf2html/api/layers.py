@@ -177,6 +177,9 @@ class LayerSingleBand(LayerBase):
         self.cmap_name = cmap_name
         self.data = data
 
+    def get_cmap(self):
+        return self.cmap_name
+
     def check(self, ds):
         err = super().check(ds)
         if err:
@@ -204,6 +207,7 @@ class LayerSingleBand(LayerBase):
         de = DataEncoder()
         de.encode(self.get_data(ds[self.band_name]), path)
         return self.data
+
 
 class LayerWMS(LayerBase):
 

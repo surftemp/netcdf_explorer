@@ -44,6 +44,9 @@ class HtmlView {
 
         // record which services are available from the server (by default, none)
         this.services = {};
+
+        // record custom min/max/cmaps selected in overlay view for data layers only
+        this.data_layers = {};
     }
 
     async load() {
@@ -104,6 +107,21 @@ class HtmlView {
             }
             await this.notify_label_update(label_group, i, label);
         }
+    }
+
+    create_custom_cmap_callback(layer_name, select_control, min_control, max_control) {
+        // create a callback to be called when a cmap is changed in the overlay view
+        let cb = async (evt) => {
+            let new_min = Number.parseFloat(min_control.value);
+            let new_max = Number.parseFloat(max_control.value);
+            let new_cmap = select_control.value;
+            this.data_layers[layer_name] = {"cmap":new_cmap, "vmin":new_min, "vmax":new_max}
+            await cmap.load(new_cmap);
+            this.update_data_layer(layer_name);
+        }
+        select_control.addEventListener("change", cb);
+        min_control.addEventListener("input", cb);
+        max_control.addEventListener("input", cb);
     }
 
     async notify_label_update(label_group, i, label) {
@@ -267,10 +285,12 @@ class HtmlView {
             document.getElementById(hide_btn).addEventListener("click", make_hide_column_callback(col_id));
         });
 
-        this.download_labels_btn.addEventListener("click", evt => {
-            var uri = "data:text/plain;base64," + btoa(JSON.stringify(this.labels));
-            this.download_labels_btn.setAttribute("href", uri);
-        });
+        if (this.download_labels_btn) {
+            this.download_labels_btn.addEventListener("click", evt => {
+                var uri = "data:text/plain;base64," + btoa(JSON.stringify(this.labels));
+                this.download_labels_btn.setAttribute("href", uri);
+            });
+        }
 
         for (let i = 0; i < this.scenes.index.length; i++) {
             let open_btn_id = "open_" + i + "_btn";
@@ -333,6 +353,16 @@ class HtmlView {
                         controls[label].addEventListener("click",this.create_grid_label_control_callback(label_group, label, i));
                     }
                 }
+            }
+        }
+
+        for(let layer_idx in this.scenes.layers) {
+            let layer = this.scenes.layers[layer_idx];
+            if (layer.has_data) {
+                let min_control = document.getElementById(layer.name+"_min_input");
+                let max_control = document.getElementById(layer.name+"_max_input");
+                let select_control = document.getElementById(layer.name+"_camp_selector");
+                this.create_custom_cmap_callback(layer.name,select_control,min_control,max_control);
             }
         }
 
@@ -417,6 +447,25 @@ class HtmlView {
         info_content.appendChild(tbl);
     }
 
+    update_data_layer(layer_name) {
+        let dl = this.data_layers[layer_name];
+        let lurl = this.di.get_legend_url(dl.cmap,dl.vmin, dl.vmax,20,200);
+        let img_id = layer_name+"_legend_img";
+        document.getElementById(img_id).src = lurl;
+        this.update_image(layer_name);
+    }
+
+    update_image(layer_name) {
+        let image_srcs = this.index[this.current_index].image_srcs;
+        let img = document.getElementById(layer_name);
+        if (layer_name in this.data_layers) {
+            let dl = this.data_layers[layer_name];
+            img.src = this.di.get_image_url(layer_name, dl.cmap, dl.vmin, dl.vmax);
+        } else {
+            img.src = image_srcs[layer_name];
+        }
+    }
+
     show() {
         // called in the overlay view to show the currently selected scene
         for (let idx = 0; idx < this.index.length; idx++) {
@@ -426,8 +475,7 @@ class HtmlView {
                 let label_specs = this.index[idx].label_specs;
 
                 for (let layer_name in image_srcs) {
-                    let img = document.getElementById(layer_name);
-                    img.src = image_srcs[layer_name];
+                    this.update_image(layer_name);
                 }
                 let data_srcs = this.index[idx].data_srcs;
                 if (this.di) {

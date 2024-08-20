@@ -30,7 +30,7 @@ import pyproj
 import logging
 import copy
 
-from .layers import LayerFactory
+from .layers import LayerFactory, LayerSingleBand
 
 from netcdf2html.htmlfive.html5_builder import Html5Builder, ElementFragment
 
@@ -39,7 +39,9 @@ from netcdf2html.fragments.image import ImageFragment
 from netcdf2html.fragments.table import TableFragment
 from netcdf2html.fragments.legend import LegendFragment
 
-js_paths = [os.path.join(os.path.split(__file__)[0], "data_image.js"), os.path.join(os.path.split(__file__)[0], "html_view.js")]
+js_paths = [os.path.join(os.path.split(__file__)[0], "cmap.js"),
+            os.path.join(os.path.split(__file__)[0], "data_image.js"),
+            os.path.join(os.path.split(__file__)[0], "html_view.js")]
 css_path = os.path.join(os.path.split(__file__)[0], "index.css")
 
 
@@ -91,6 +93,9 @@ class Netcdf2HtmlConverter:
         data_folder = os.path.join(self.output_folder, "data")
         os.makedirs(data_folder, exist_ok=True)
 
+        cmap_folder = os.path.join(self.output_folder, "cmaps")
+        os.makedirs(cmap_folder, exist_ok=True)
+
         js_code = ""
         for js_path in js_paths:
             with open(js_path) as f:
@@ -113,6 +118,20 @@ class Netcdf2HtmlConverter:
             layer = LayerFactory.create(self, layer_name, layer_spec)
             self.layer_definitions.append(layer)
 
+        self.all_cmaps = ["Purples", "gist_rainbow", "gist_ncar", "Blues", "Greys", "autumn", "gist_gray", "magma", "Set3",
+                     "cool", "tab20c", "GnBu", "brg", "cividis", "Pastel1", "YlOrRd", "Spectral", "gist_earth", "PuBu",
+                     "OrRd", "PuRd", "plasma", "winter", "PuBuGn", "inferno", "bwr", "RdGy", "Wistia", "gist_stern",
+                     "gist_heat", "BuGn", "twilight", "RdBu", "twilight_shifted", "Paired", "PiYG", "RdYlBu", "Dark2",
+                     "CMRmap", "BuPu", "gnuplot", "PRGn", "nipy_spectral", "ocean", "viridis", "bone", "BrBG",
+                     "gnuplot2", "Oranges", "turbo", "YlGn", "PuOr", "hot", "Set2", "afmhot", "hsv", "YlOrBr",
+                     "terrain", "Accent", "copper", "cubehelix", "RdPu", "tab10", "Reds", "Greens", "gray", "rainbow",
+                     "spring", "tab20", "pink", "coolwarm", "RdYlGn", "Set1", "tab20b", "flag", "gist_yarg", "binary",
+                     "YlGnBu", "seismic", "prism", "Pastel2", "jet", "summer"]
+
+        for cmap in self.all_cmaps:
+            source_path = os.path.join(os.path.split("__file__")[0],"..","misc","cmaps", cmap+".json")
+            dest_path = os.path.join(cmap_folder, cmap + ".json")
+            shutil.copyfile(source_path, dest_path)
 
     def reduce_coordinate_dimension(self, ds, coordinate_name, case_dimension):
         dims = ds[coordinate_name].dims
@@ -229,8 +248,8 @@ class Netcdf2HtmlConverter:
             template = Template(value)
             try:
                 d[key] = template.render(**variables)
-            except:
-                self.logger.exception(f"Unable to render info for key: {key}")
+            except Exception as ex:
+                self.logger.error(f"Unable to render info for key: {str(ex)}")
         return d
 
     def run(self):
@@ -312,7 +331,7 @@ class Netcdf2HtmlConverter:
         scenes = { "layers":[], "index": [] }
 
         for layer_definition in self.layer_definitions:
-            scenes["layers"].insert(0, {"name": layer_definition.layer_name, "label": layer_definition.layer_label})
+            scenes["layers"].insert(0, {"name": layer_definition.layer_name, "label": layer_definition.layer_label, "has_data": layer_definition.save_data()})
 
         for (index, timestamp, layer_sources, data_sources, ds) in self.layer_images:
 
@@ -490,15 +509,35 @@ class Netcdf2HtmlConverter:
             col1 = row.add_element("td")
             col2 = row.add_element("td")
             col3 = row.add_element("td")
+            col4 = row.add_element("td")
+            col5 = row.add_element("td")
+            col6 = row.add_element("td")
             col1.add_text(layer_definition.layer_label)
             opacity_control_id = layer_definition.layer_name + "_opacity"
             col2.add_element("input", {"type": "range", "id": opacity_control_id})
 
             if layer_definition.has_legend():
+                has_data = isinstance(layer_definition,LayerSingleBand) and layer_definition.save_data()
                 legend_src = self.layer_legends[layer_definition.layer_name]
-                col3.add_element("span").add_text(str(layer_definition.vmin))
-                col3.add_element("img", {"src": legend_src, "class": "legend"})
-                col3.add_element("span").add_text(str(layer_definition.vmax))
+                if has_data:
+                    col3.add_element("input",{"type":"number","value":str(layer_definition.vmin),"id":layer_definition.layer_name+"_min_input"})
+                else:
+                    col3.add_element("span").add_text(str(layer_definition.vmin))
+                col4.add_element("img", {"src": legend_src, "class": "legend", "id":layer_definition.layer_name+"_legend_img"})
+                if has_data:
+                    col5.add_element("input", {"type": "number", "value": str(layer_definition.vmax),
+                                               "id": layer_definition.layer_name + "_max_input"})
+                else:
+                    col5.add_element("span").add_text(str(layer_definition.vmax))
+                if has_data:
+                    selector_control_id = layer_definition.layer_name+"_camp_selector"
+                    cmap_selector = col6.add_element("select",{"id":selector_control_id})
+                    for cmap in self.all_cmaps:
+                        option_attrs = {"value":cmap}
+                        if cmap == layer_definition.get_cmap():
+                            option_attrs["selected"] = "selected"
+                        cmap_selector.add_element("option",option_attrs).add_text(cmap)
+
 
         if self.filter_controls:
             filter_div = overlay_container_div.add_element("div", {"id": "filter_container", "class": "control_container"})

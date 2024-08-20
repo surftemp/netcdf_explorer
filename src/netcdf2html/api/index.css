@@ -71,3 +71,7 @@ th, td {
 .info_table {
     overflow-y: scroll;
 }
+
+input[type=number] {
+    width: 50px;
+}
