@@ -374,13 +374,20 @@ class HtmlView {
     set_zoom() {
         // update the overlay zoom
         let zoom = Number.parseInt(zoom_control.value);
-        zoom = Math.sqrt(zoom);
+        this.zoom = Math.sqrt(zoom);
         this.scenes.layers.forEach(layer => {
             let img = document.getElementById(layer.name);
-            img.width = Math.round(zoom * image_width);
+            if (layer.wms_url) {
+                img.src = layer.wms_url.replace("{WIDTH}",""+this.zoom*image_width).replace("{HEIGHT}",""+this.zoom*image_width)
+                    .replace("{XMIN}",""+this.scenes.index[this.current_index].x_min)
+                    .replace("{YMIN}",""+this.scenes.index[this.current_index].y_min)
+                    .replace("{XMAX}",""+this.scenes.index[this.current_index].x_max)
+                    .replace("{YMAX}",""+this.scenes.index[this.current_index].y_max);
+            }
+            img.width = Math.round(this.zoom * image_width);
         });
         if (this.di) {
-            this.di.set_zoom(zoom);
+            this.di.set_zoom(this.zoom);
         }
     }
 

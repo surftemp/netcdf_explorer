@@ -39,13 +39,13 @@ def save_image(arr,vmin,vmax,path,cmap_name="coolwarm"):
     im = Image.fromarray(np.uint8((255*cmap_fn((arr-vmin)/(vmax-vmin)))))
     im.save(path)
 
-def save_image_falsecolour(data_red, data_green, data_blue, path):
+def save_image_falsecolour(data_red, data_green, data_blue, path, red_gamma=0.5, green_gamma=0.5, blue_gamma=0.5):
     alist = []
-    for arr in [data_red, data_green, data_blue]:
+    for (arr,gamma) in [(data_red,red_gamma),(data_green,green_gamma), (data_blue,blue_gamma)]:
+        arr = np.power(arr,gamma)  # apply gamma correction
         minv = np.nanmin(arr)
         maxv = np.nanmax(arr)
         v = (arr - minv) / (maxv - minv)
-        v = np.sqrt(v) # this boosts the contrast
         alist.append((255*v).astype(np.uint8))
     arr = np.stack(alist,axis=-1)
     im = Image.fromarray(arr,mode="RGB")
@@ -142,11 +142,15 @@ class LayerBase:
 
 class LayerRGB(LayerBase):
 
-    def __init__(self, layer, converter, layer_name, layer_label, selectors, red_variable, green_variable, blue_variable):
+    def __init__(self, layer, converter, layer_name, layer_label, selectors, red_variable, green_variable, blue_variable,
+                 red_gamma=0.5, green_gamma=0.5, blue_gamma=0.5):
         super().__init__(layer, converter, layer_name, layer_label, selectors)
         self.red_variable = red_variable
         self.green_variable = green_variable
         self.blue_variable = blue_variable
+        self.red_gamma = red_gamma
+        self.green_gamma = green_gamma
+        self.blue_gamma = blue_gamma
 
     def has_legend(self):
         return False
@@ -163,8 +167,8 @@ class LayerRGB(LayerBase):
         red = self.get_data(ds[self.red_variable])
         green = self.get_data(ds[self.green_variable])
         blue = self.get_data(ds[self.blue_variable])
-
-        save_image_falsecolour(red, green, blue, path)
+        save_image_falsecolour(red, green, blue, path, red_gamma=self.red_gamma,
+                               green_gamma=self.green_gamma, blue_gamma=self.blue_gamma)
 
 
 class LayerSingleBand(LayerBase):
@@ -221,13 +225,7 @@ class LayerWMS(LayerBase):
     def has_legend(self):
         return False
 
-    def build(self,ds,path):
-        if os.path.exists(path):
-            os.remove(path)
-        image_width, image_height = self.converter.get_image_dimensions(ds)
-        image_width *= self.scale
-        image_height *= self.scale
-
+    def get_bounds(self,ds):
         xc = self.converter.get_x_coords(ds)
         yc = self.converter.get_y_coords(ds)
 
@@ -238,6 +236,17 @@ class LayerWMS(LayerBase):
         x_max = float(xc.max()) + spacing_x/2
         y_min = float(yc.min()) - spacing_y/2
         y_max = float(yc.max()) + spacing_y/2
+        return ((x_min,y_min),(x_max,y_max))
+
+    def build(self,ds,path):
+        if os.path.exists(path):
+            os.remove(path)
+        image_width, image_height = self.converter.get_image_dimensions(ds)
+        image_width *= self.scale
+        image_height *= self.scale
+
+        ((x_min, y_min), (x_max, y_max)) = self.get_bounds(ds)
+
         url = self.wms_url.replace("{WIDTH}",str(image_width)).replace("{HEIGHT}",str(image_height)) \
             .replace("{YMIN}",str(y_min)).replace("{YMAX}",str(y_max)) \
             .replace("{XMIN}",str(x_min)).replace("{XMAX}", str(x_max))
@@ -247,7 +256,6 @@ class LayerWMS(LayerBase):
         elif url in self.failed:
             pass
         else:
-            print("Fetching:"+url)
             r = requests.get(url, stream=True)
             if r.status_code == 200:
                 with open(path, 'wb') as f:
@@ -255,7 +263,6 @@ class LayerWMS(LayerBase):
                     shutil.copyfileobj(r.raw, f)
                 self.cache[url] = path
             else:
-                print("Failed")
                 self.failed.add(url)
 
 class LayerMask(LayerBase):
@@ -342,7 +349,11 @@ class LayerFactory:
             red_band = layer["red_band"]
             green_band = layer["green_band"]
             blue_band = layer["blue_band"]
-            created_layer = LayerRGB(layer, converter, layer_name, layer_label, selectors, red_band, green_band, blue_band)
+            red_gamma = layer.get("red_gamma",0.5)
+            green_gamma = layer.get("green_gamma",0.5)
+            blue_gamma = layer.get("blue_gamma",0.5)
+            created_layer = LayerRGB(layer, converter, layer_name, layer_label, selectors, red_variable=red_band,
+                    green_variable=green_band, blue_variable=blue_band, red_gamma=red_gamma, green_gamma=green_gamma, blue_gamma=blue_gamma)
         elif layer_type == "discrete":
             layer_band = layer.get("band", layer_name)
             values = layer["values"]

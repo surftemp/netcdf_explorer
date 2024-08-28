@@ -27,7 +27,7 @@ import xarray as xr
 import numpy as np
 import logging
 
-from netcdf2html.api.netcdf2html_converter import Netcdf2HtmlConverter
+from netcdf_explorer.api.html_generator import HTMLGenerator
 
 
 def strip_json5_comments(original):
@@ -93,6 +93,7 @@ def main():
         stripped = strip_json5_comments(f.read())
         config = json.loads(stripped)
         dimensions = config.get("dimensions", {})
+        coordinates = config.get("coordinates", {})
         case_dimension = dimensions.get("case", "time")
 
     ds_list = []
@@ -109,6 +110,11 @@ def main():
         print(f"[Reading {filename} {file_count}/{len(input_paths)}]")
         ds = xr.open_dataset(os.path.join(args.input_path,filename))
         ds, indices = subset(ds, case_dimension, sample_count=args.sample_count, sample_cases=args.sample_cases)
+        n = ds[case_dimension].shape[0]
+        if case_dimension not in ds[coordinates["x"]].dims:
+            ds[coordinates["x"]] = ds[coordinates["x"]].expand_dims({case_dimension:n},axis=0)
+        if case_dimension not in ds[coordinates["y"]].dims:
+            ds[coordinates["y"]] = ds[coordinates["y"]].expand_dims({case_dimension:n},axis=0)
         ds_list.append(ds)
         for i in indices:
             filename_list.append(filename)
@@ -117,15 +123,16 @@ def main():
             break
 
     input_ds = xr.concat(ds_list,dim=case_dimension)
+
     input_ds["source_filenames"] = xr.DataArray(filename_list,dims=(case_dimension,))
     input_ds["source_indices"] = xr.DataArray(indices_list, dims=(case_dimension,))
 
-    c = Netcdf2HtmlConverter(config, input_ds, os.path.abspath(args.output_folder), args.title,
+    g = HTMLGenerator(config, input_ds, os.path.abspath(args.output_folder), args.title,
                                  sample_count=args.sample_count, sample_cases=args.sample_cases,
                                  netcdf_download_filename=args.netcdf_download_filename,
                                  filter_controls=args.filter_controls)
 
-    c.run()
+    g.run()
 
 
 if __name__ == '__main__':

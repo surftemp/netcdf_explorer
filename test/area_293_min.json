@@ -14,7 +14,7 @@
     "max-zoom": 10
   },
   "labels": {
-    "colour": ["red","green","blue"]
+    "cloudy": ["yes","no"]
   },
   "group": "<b>${str(data['time'].data)[0:10]}</b>",
   "info": {

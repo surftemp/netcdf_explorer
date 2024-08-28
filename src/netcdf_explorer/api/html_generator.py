@@ -30,14 +30,14 @@ import pyproj
 import logging
 import copy
 
-from .layers import LayerFactory, LayerSingleBand
+from .layers import LayerFactory, LayerSingleBand, LayerWMS
 
-from netcdf2html.htmlfive.html5_builder import Html5Builder, ElementFragment
+from netcdf_explorer.htmlfive.html5_builder import Html5Builder, ElementFragment
 
-from netcdf2html.fragments.utils import anti_aliasing_style
-from netcdf2html.fragments.image import ImageFragment
-from netcdf2html.fragments.table import TableFragment
-from netcdf2html.fragments.legend import LegendFragment
+from netcdf_explorer.fragments.utils import anti_aliasing_style
+from netcdf_explorer.fragments.image import ImageFragment
+from netcdf_explorer.fragments.table import TableFragment
+from netcdf_explorer.fragments.legend import LegendFragment
 
 js_paths = [os.path.join(os.path.split(__file__)[0], "cmap.js"),
             os.path.join(os.path.split(__file__)[0], "data_image.js"),
@@ -45,7 +45,7 @@ js_paths = [os.path.join(os.path.split(__file__)[0], "cmap.js"),
 css_path = os.path.join(os.path.split(__file__)[0], "index.css")
 
 
-class Netcdf2HtmlConverter:
+class HTMLGenerator:
 
     def __init__(self, config, input_ds, output_folder, title, sample_count=None, sample_cases=None,
                  netcdf_download_filename="", filter_controls=False):
@@ -84,7 +84,7 @@ class Netcdf2HtmlConverter:
         self.info = info
         self.crs = crs
         self.labels = labels
-        self.logger = logging.getLogger("netcdf2html")
+        self.logger = logging.getLogger("generate_html")
         self.group = group
 
         image_folder = os.path.join(self.output_folder, "images")
@@ -129,7 +129,7 @@ class Netcdf2HtmlConverter:
                      "YlGnBu", "seismic", "prism", "Pastel2", "jet", "summer"]
 
         for cmap in self.all_cmaps:
-            source_path = os.path.join(os.path.split("__file__")[0],"..","misc","cmaps", cmap+".json")
+            source_path = os.path.join(os.path.abspath(os.path.split(__file__)[0]),"..","misc","cmaps", cmap+".json")
             dest_path = os.path.join(cmap_folder, cmap + ".json")
             shutil.copyfile(source_path, dest_path)
 
@@ -331,7 +331,10 @@ class Netcdf2HtmlConverter:
         scenes = { "layers":[], "index": [] }
 
         for layer_definition in self.layer_definitions:
-            scenes["layers"].insert(0, {"name": layer_definition.layer_name, "label": layer_definition.layer_label, "has_data": layer_definition.save_data()})
+            layer_dict = {"name": layer_definition.layer_name, "label": layer_definition.layer_label, "has_data": layer_definition.save_data()}
+            if isinstance(layer_definition,LayerWMS):
+                layer_dict["wms_url"] = layer_definition.wms_url
+            scenes["layers"].insert(0, layer_dict)
 
         for (index, timestamp, layer_sources, data_sources, ds) in self.layer_images:
 
@@ -339,8 +342,17 @@ class Netcdf2HtmlConverter:
             if self.info:
                 info = self.generate_info_dict(index, ds)
 
-            scenes["index"].append({"timestamp": timestamp if timestamp is not None else "", "image_srcs": layer_sources,
-                               "data_srcs": data_sources, "info": info, "pos":index})
+            scene_dict = {"timestamp": timestamp if timestamp is not None else "", "image_srcs": layer_sources,
+                               "data_srcs": data_sources, "info": info, "pos":index}
+            for layer_definition in self.layer_definitions:
+                if isinstance(layer_definition, LayerWMS):
+                    ((x_min, y_min), (x_max, y_max)) = layer_definition.get_bounds(ds)
+                    scene_dict["x_min"] = x_min
+                    scene_dict["x_max"] = x_max
+                    scene_dict["y_min"] = y_min
+                    scene_dict["y_max"] = y_max
+
+            scenes["index"].append(scene_dict)
 
         with open(os.path.join(self.output_folder, "scenes.json"), "w") as f:
             f.write(json.dumps(scenes,indent=4))

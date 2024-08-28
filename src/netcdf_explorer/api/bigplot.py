@@ -1,0 +1,190 @@
+# MIT License
+#
+# Copyright (C) 2023-2024 National Centre For Earth Observation (NCEO)
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy of this software
+# and associated documentation files (the "Software"), to deal in the Software without
+# restriction, including without limitation the rights to use, copy, modify, merge, publish,
+# distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the
+# Software is furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in all copies or
+# substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING
+# BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+# NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+# DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+import numpy as np
+import xarray as xr
+import os
+import datashader as dsh
+import datashader.transfer_functions as tf
+from datashader import reductions as rd
+
+import json
+import math
+from PIL import Image, ImageFont, ImageDraw
+
+class CMap:
+
+    def __init__(self, colors, vmin, vmax):
+        self.colors = colors
+        self.vmin = vmin
+        self.vmax = vmax
+
+    def get_rgb(self,name,vmin,vmax,v):
+        lookup_v = (v - vmin) / (vmax-vmin)
+
+        ncols = len(self.colors)
+        index = math.floor(lookup_v*ncols)
+        if index < 0:
+            index = 0
+
+        if index >= ncols:
+            index = ncols-1
+
+        return self.colors[index]
+
+    def get_colors(self):
+        return self.colors
+
+
+class BigPlot:
+
+    def __init__(self, input_path, input_variable, x, y, vmin, vmax, vformat, cmap_name, title,  output_path, legend_width=300, legend_height=50, plot_width=1800, flip=True, theight=50,
+                 selectors={}, iselectors={}, font_path=None, border=20):
+        self.input_path = input_path
+        self.input_variable = input_variable
+        self.x = x
+        self.y = y
+        self.vmin = vmin
+        self.vmax = vmax
+        self.vformat = vformat
+        self.cmap_name = cmap_name
+        self.legend_width = legend_width
+        self.legend_height = legend_height
+        self.title = title
+        self.output_path = output_path
+        self.plot_width = plot_width
+        self.flip = flip
+        self.theight = theight
+        cmap_path = os.path.join(os.path.split(__file__)[0],"cmaps",self.cmap_name+".json")
+        self.cmap_colors = []
+        self.cmap = None
+        self.selectors = selectors
+        self.iselectors = iselectors
+        self.font_path = font_path if font_path else os.path.join(os.path.split(__file__)[0],"..","misc","Roboto-Black.ttf")
+        self.border = border
+        with open(cmap_path) as f:
+            o = json.loads(f.read())
+            for rgb in o["colors"]:
+                r = int(255*rgb[0])
+                g = int(255*rgb[1])
+                b = int(255*rgb[2])
+                self.cmap_colors.append(f"#{r:02X}{g:02X}{b:02X}")
+            self.cmap = CMap(o["colors"],self.vmin,self.vmax)
+
+    def run(self):
+        ds = xr.open_dataset(self.input_path)
+
+        da = ds[self.input_variable]
+
+        if self.selectors:
+            da = da.sel(**self.selectors)
+
+        if self.iselectors:
+            da = da.sel(**self.iselectors)
+
+        da = da.squeeze()
+
+        if len(da.shape) != 2:
+            raise Exception(f"too many dimensions to plot {da.sims}")
+
+        if self.flip:
+            da = da.isel(y=slice(None, None, -1))
+
+        h = da.shape[0]
+        w = da.shape[1]
+
+        plot_height = int(self.plot_width*(h/w))
+        cvs = dsh.Canvas(plot_width=self.plot_width, plot_height=plot_height,
+                    x_range=(float(ds[self.x].min()), float(ds[self.x].max())),
+                    y_range=(float(ds[self.y].min()), float(ds[self.y].max())))
+
+        agg = cvs.raster(ds[self.input_variable].squeeze(), agg=rd.first, interpolate='linear')
+
+        shaded = tf.shade(agg, cmap=self.cmap_colors,
+                      how="linear",
+                      span=(self.vmin, self.vmax))
+
+        p = shaded.to_pil()
+
+        font = ImageFont.truetype(self.font_path, size=self.theight)
+        spacing = self.theight
+
+        # work out the combined width and height of the whole plot
+        combined_height = self.border
+        if self.title:
+            combined_height += self.theight+spacing
+        if self.legend_height:
+            combined_height += self.legend_height+spacing
+        combined_height += plot_height+self.border
+        combined_width = 2*self.border+self.plot_width
+
+        combined = Image.new('RGB', (combined_width, combined_height), "white")
+
+        y = self.border
+        draw = ImageDraw.Draw(combined)
+
+        if self.title:
+            draw.text((round(self.border+self.plot_width * 0.5),y), self.title, fill=(0, 0, 0), font=font, anchor="ma")
+            y += self.theight+spacing
+
+        if self.legend_height:
+            lp = self.create_legend_image()
+            combined.paste(lp, (round(self.border+self.plot_width * 0.5 - self.legend_width * 0.5), y))
+            min_label = self.vformat % self.vmin
+            max_label = self.vformat % self.vmax
+
+            draw.text((round(combined_width * 0.5 - self.legend_width * 0.5) - 20, y), min_label, fill=(0,0,0), font=font, anchor="rt")
+            draw.text((round(combined_width * 0.5 + self.legend_width * 0.5) + 20, y), max_label, fill=(0,0,0), font=font, anchor="lt")
+            y += self.legend_height+spacing
+
+        combined.paste(p, (spacing, y))
+
+        with open(self.output_path, "wb") as f:
+            if self.output_path.endswith(".png"):
+                format = "PNG"
+            elif self.output_path.endswith(".pdf"):
+                format = "PDF"
+            elif self.output_path.endswith(".jpg") or self.output_path.endswith(".jpeg"):
+                format = "JPEG"
+            else:
+                raise Exception("Unsupported output file format, currently only pdf and png are supported")
+            combined.save(f, format=format)
+
+    def create_legend_image(self):
+        lwidth = self.legend_width
+        lheight = self.legend_height
+
+        ldata = xr.DataArray(np.zeros((lheight, lwidth)), dims=("y", "x"))
+        ldata["x"] = xr.DataArray(np.arange(0, lwidth), dims=("x",))
+        ldata["y"] = xr.DataArray(np.arange(0, lheight), dims=("y",))
+
+        for i in range(0, lwidth):
+            v = self.vmin + i * (self.vmax - self.vmin) / lwidth
+            ldata[:, i] = v
+
+        lcvs = dsh.Canvas(plot_width=lwidth, plot_height=lheight,
+                          x_range=(0, lwidth),
+                          y_range=(0, lheight))
+
+        lagg = lcvs.raster(ldata, agg=rd.first, interpolate='linear')
+
+        lshaded = tf.shade(lagg, cmap=self.cmap_colors,
+                           how="linear",
+                           span=(self.vmin, self.vmax))
+        return lshaded.to_pil()
