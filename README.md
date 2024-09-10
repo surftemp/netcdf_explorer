@@ -1,4 +1,4 @@
-# netcdf2html
+# netcdf_explorer
 
 Generate static HTML for visualising array data read from a netcdf4 file
 
