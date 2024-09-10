@@ -1,6 +1,6 @@
 # netcdf_explorer
 
-Generate static HTML for visualising array data read from a netcdf4 file
+Generate static HTML and images for visualising array data read from a netcdf4 file
 
 ## Installation
 
@@ -8,10 +8,12 @@ Generate static HTML for visualising array data read from a netcdf4 file
 conda create -n netcdfexplorer_env python=3.10
 conda activate netcdfexplorer_env
 conda install netcdf4 xarray matplotlib requests datashader pyproj mako
-pip install git+https://github.com/surftemp/netcdf2html.git
+pip install git+https://github.com/surftemp/netcdf_explorer.git
 ```
 
-## Running
+## generate_html
+
+Use `generate_html` to create a static HTML file and images from a netcdf4 file
 
 ```
 generate_html --input-path test_input_area97.nc --title "area_97" --output-folder output_folder_with_html --config-path example_layers.json5
@@ -29,7 +31,7 @@ Open the file `output_folder_with_html/index.html` in your browser to explore th
 
 You will need to define a JSON file which maps variables in the input dataset to layers in the generated visualisations
 
-This [commented example configuration file](src/netcdf2html/cli/example_layers.json5) should explain how the configuration file works
+This [commented example configuration file](src/netcdf_explorer/cli/example_layers.json5) should explain how the configuration file works
 
 ## common command line options
 
@@ -46,6 +48,28 @@ This [commented example configuration file](src/netcdf2html/cli/example_layers.j
 |----------------------------|---------------------------------------|--------------------------------------|
  | --sample-count             | limit the number of cases to display  | --sample-count 100                   |
  | --sample-cases             | specify which cases to display        | --sample-cases 4 10 12               |
- | --netcdf-download-filename | provide a link to download the data   | --netcdf-download-filename area97.nc | 
+ | --netcdf-download-filename | provide a link to download the data in the generated html  | --netcdf-download-filename area97.nc | 
+
+## bigplot
+
+Use `bigplot` to generate potentially large image files as png or pdf files
+
+```
+usage: bigplot.py [-h] --input-path INPUT_PATH --input-variable INPUT_VARIABLE
+                  [--x X] [--y Y] [--selector coordinate min max]
+                  [--iselector dimension min max] [--flip] [--vmin VMIN]
+                  [--vmax VMAX] [--vformat VFORMAT] [--cmap CMAP]
+                  [--legend-width LEGEND_WIDTH]
+                  [--legend-height LEGEND_HEIGHT] [--title TITLE]
+                  [--title-height TITLE_HEIGHT] [--font-path FONT_PATH]
+                  [--output-path OUTPUT_PATH] [--plot-width PLOT_WIDTH]
+```
+
+Example usage:
+
+```
+bigplot --input-path data.nc --input-variable myvar --title "MyVAR plot" --cmap viridis --vmin 0 --vmax 100 --output-path plot.png
+```
+
 
 
