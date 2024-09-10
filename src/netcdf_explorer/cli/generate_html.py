@@ -94,7 +94,7 @@ def main():
         config = json.loads(stripped)
         dimensions = config.get("dimensions", {})
         coordinates = config.get("coordinates", {})
-        case_dimension = dimensions.get("case", "time")
+        case_dimension = dimensions.get("case", None)
 
     ds_list = []
     filename_list = []
@@ -109,23 +109,33 @@ def main():
         file_count += 1
         print(f"[Reading {filename} {file_count}/{len(input_paths)}]")
         ds = xr.open_dataset(os.path.join(args.input_path,filename))
-        ds, indices = subset(ds, case_dimension, sample_count=args.sample_count, sample_cases=args.sample_cases)
-        n = ds[case_dimension].shape[0]
-        if case_dimension not in ds[coordinates["x"]].dims:
-            ds[coordinates["x"]] = ds[coordinates["x"]].expand_dims({case_dimension:n},axis=0)
-        if case_dimension not in ds[coordinates["y"]].dims:
-            ds[coordinates["y"]] = ds[coordinates["y"]].expand_dims({case_dimension:n},axis=0)
-        ds_list.append(ds)
-        for i in indices:
+        if case_dimension:
+            ds, indices = subset(ds, case_dimension, sample_count=args.sample_count, sample_cases=args.sample_cases)
+            n = ds[case_dimension].shape[0]
+            if case_dimension not in ds[coordinates["x"]].dims:
+                ds[coordinates["x"]] = ds[coordinates["x"]].expand_dims({case_dimension:n},axis=0)
+            if case_dimension not in ds[coordinates["y"]].dims:
+                ds[coordinates["y"]] = ds[coordinates["y"]].expand_dims({case_dimension:n},axis=0)
+            for i in indices:
+                filename_list.append(filename)
+                indices_list.append(i)
+        else:
             filename_list.append(filename)
-            indices_list.append(i)
+            indices_list.append(0)
+        ds_list.append(ds)
         if args.file_count is not None and file_count >= args.file_count:
             break
 
-    input_ds = xr.concat(ds_list,dim=case_dimension)
+    if case_dimension is None:
+        # create a dummy case dimension
+        case_dimension = "case"
+        config["dimensions"]["case"] = case_dimension
+    input_ds = xr.concat(ds_list, dim=case_dimension)
 
     input_ds["source_filenames"] = xr.DataArray(filename_list,dims=(case_dimension,))
     input_ds["source_indices"] = xr.DataArray(indices_list, dims=(case_dimension,))
+
+
 
     g = HTMLGenerator(config, input_ds, os.path.abspath(args.output_folder), args.title,
                                  sample_count=args.sample_count, sample_cases=args.sample_cases,
