@@ -21,7 +21,7 @@
 from netcdf_explorer.api.bigplot import BigPlot
 
 
-if __name__ == '__main__':
+def main():
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("--input-path", help="path to netcdf input file", required=True)
@@ -64,3 +64,6 @@ if __name__ == '__main__':
                         title=args.title,theight=args.title_height, output_path=args.output_path, plot_width=args.plot_width, flip=args.flip,
                         selectors=selectors, iselectors=iselectors, font_path=args.font_path)
     bp.run()
+
+if __name__ == '__main__':
+    main()
