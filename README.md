@@ -31,7 +31,7 @@ Open the file `output_folder_with_html/index.html` in your browser to explore th
 
 You will need to define a JSON file which maps variables in the input dataset to layers in the generated visualisations
 
-This [commented example configuration file](src/netcdf2html/cli/example_layers.json5) should explain how the configuration file works
+This [commented example configuration file](src/netcdf_explorer/cli/example_layers.json5) should explain how the configuration file works
 
 ## common command line options
 
