@@ -19,8 +19,12 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
-
+import csv
+import datetime
 import os
+import sys
+
+import pandas as pd
 import xarray as xr
 import shutil
 import json
@@ -29,8 +33,10 @@ from mako.template import Template
 import pyproj
 import logging
 import copy
+import matplotlib.pyplot as plt
+import seaborn as sns
 
-from .layers import LayerFactory, LayerSingleBand, LayerWMS
+from .layers import LayerFactory, LayerSingleBand, LayerWMS, LayerMask
 
 from netcdf_explorer.htmlfive.html5_builder import Html5Builder, ElementFragment
 
@@ -44,48 +50,79 @@ js_paths = [os.path.join(os.path.split(__file__)[0], "cmap.js"),
             os.path.join(os.path.split(__file__)[0], "html_view.js")]
 css_path = os.path.join(os.path.split(__file__)[0], "index.css")
 
+class Progress(object):
+
+    def __init__(self,label):
+        self.label = label
+        self.last_progress_frac = None
+
+    def report(self,msg,progress_frac):
+        if self.last_progress_frac == None or (progress_frac - self.last_progress_frac) >= 0.01:
+            self.last_progress_frac = progress_frac
+            i = int(100*progress_frac)
+            if i > 100:
+                i = 100
+            si = i // 2
+            sys.stdout.write("\r%s %s %-05s %s" % (self.label,msg,str(i)+"%","#"*si))
+            sys.stdout.flush()
+
+    def complete(self,msg):
+        self.report(msg, 1)
+        sys.stdout.write("\n")
+        sys.stdout.flush()
+
+def strip_json5_comments(original):
+    # perform a minimal filtering of // comments (a subset of JSON5) and return a JSON compatible string
+    lines = original.split("\n")
+    parsed = ""
+    for line in lines:
+        line = line.rstrip()
+        inq = False
+        for idx in range(len(line) - 1):
+            if line[idx] == '"' and (idx==0 or line[idx-1] != "\\"):
+                inq = not inq
+            else:
+                if not inq:
+                    if line[idx:idx + 2] == "//":
+                        line = line[:idx].rstrip()  # cut off comment
+                        break
+        if line:
+            if parsed:
+                parsed += "\n"
+            parsed += line
+    return parsed
 
 class HTMLGenerator:
 
     def __init__(self, config, input_ds, output_folder, title, sample_count=None, sample_cases=None,
                  netcdf_download_filename="", filter_controls=False):
-        dimensions = config.get("dimensions", {})
-        case_dimension = dimensions.get("case", "time")
-        x_dimension = dimensions.get("x", "x")
-        y_dimension = dimensions.get("y", "y")
-        coordinates = config.get("coordinates", {})
-        x_coordinate = coordinates.get("x", "x")
-        y_coordinate = coordinates.get("y", "y")
-        time_coordinate = coordinates.get("time", "")
-        info = config.get("info",{})
-        image = config.get("image", {})
-        max_zoom = image.get("max-zoom", None)
-        grid_image_width = image.get("grid-width", None)
-        crs = config.get("crs",None)
-        labels = config.get("labels",None)
-        group = config.get("group",None)
 
-        self.case_dimension = case_dimension
-        self.x_dimension = x_dimension
-        self.y_dimension = y_dimension
-        self.x_coordinate = x_coordinate
-        self.y_coordinate = y_coordinate
-        self.time_coordinate = time_coordinate
+        dimensions = config.get("dimensions", {})
+        coordinates = config.get("coordinates", {})
+        image = config.get("image", {})
+
+        self.case_dimension = dimensions.get("case", "time")
+        self.x_dimension = dimensions.get("x", "x")
+        self.y_dimension = dimensions.get("y", "y")
+        self.x_coordinate = coordinates.get("x", "x")
+        self.y_coordinate = coordinates.get("y", "y")
+        self.time_coordinate = coordinates.get("time", "")
         self.input_ds = input_ds
         self.output_folder = output_folder
         self.title = title
         self.sample_count = sample_count
         self.sample_cases = sample_cases
-        self.max_zoom = max_zoom
-        self.grid_image_width = grid_image_width
+        self.max_zoom = image.get("max-zoom", None)
+        self.grid_image_width = image.get("grid-width", None)
         self.netcdf_download_filename = netcdf_download_filename
         self.output_html_path = os.path.join(output_folder, "index.html")
         self.filter_controls = filter_controls
-        self.info = info
-        self.crs = crs
-        self.labels = labels
+        self.info = config.get("info",{})
+        self.crs = config.get("crs",None)
+        self.labels = config.get("labels",None)
         self.logger = logging.getLogger("generate_html")
-        self.group = group
+        self.group = config.get("group",None)
+        self.timeseries = config.get("timeseries",{})
 
         image_folder = os.path.join(self.output_folder, "images")
         os.makedirs(image_folder, exist_ok=True)
@@ -257,12 +294,14 @@ class HTMLGenerator:
         image_width, image_height = self.get_image_dimensions(self.input_ds)
         n = len(self.input_ds[self.case_dimension])
 
-        selected_indexes = list(range(n))
-
-        for i in selected_indexes:
+        p = Progress("Reading data")
+        for i in range(n):
+            p.report("", i/n)
             timestamp = str(self.input_ds[self.time_coordinate].data[i])[:10] if self.time_coordinate else None
             cases.append((i, timestamp, self.input_ds.isel(**{self.case_dimension: i})))
-            cases = sorted(cases, key=lambda t: t[0])
+            if self.time_coordinate:
+                cases = sorted(cases, key=lambda t: t[1])
+        p.complete("Done")
 
         # check the layers, removing any that fail
         remove_layers = []
@@ -289,7 +328,9 @@ class HTMLGenerator:
             if self.netcdf_download_filename:
                 label_values["netcdf_filename"] = self.netcdf_download_filename
 
+        p = Progress("Building images")
         for (index, timestamp, ds) in cases:
+            p.report("",index/n)
             image_srcs = {}
             data_srcs = {}
 
@@ -304,13 +345,51 @@ class HTMLGenerator:
 
             if self.labels:
                 for label_group in self.labels:
+                    if label_group not in label_values["values"]:
+                        label_values["values"][label_group] = []
                     if label_group in ds:
-                        if label_group not in label_values["values"]:
-                            label_values["values"][label_group] = []
                         label_values["values"][label_group].append(ds[label_group].item())
+                    else:
+                        label_values["values"][label_group].append(None)
 
 
             self.layer_images.append((index, timestamp, image_srcs, data_srcs, ds))
+
+        p.complete("Done")
+
+        # build timeseries if there is a time coordinate and case dimension
+        timeseries = {}
+
+        if self.time_coordinate:
+            timeseries_data_bands = self.timeseries.get("bands",[])
+            timeseries_mask_bands = self.timeseries.get("masks", [])
+            if timeseries_data_bands and timeseries_mask_bands:
+                ts = 0
+                p = Progress("Building timeseries")
+                for timeseries_band in timeseries_data_bands:
+                    data = {"time":[], "mean":[], "area":[], "year":[], "day":[] }
+                    folder = os.path.join(self.output_folder, "timeseries")
+                    os.makedirs(folder,exist_ok=True)
+                    csv_path = os.path.join(folder, timeseries_band + ".csv")
+                    with open(csv_path,"w") as f:
+                        writer = csv.writer(f)
+                        writer.writerow(["datetime"]+timeseries_mask_bands)
+                        for (index, timestamp, ds) in cases:
+                            p.report(timeseries_band,(index+ts*n)/(len(timeseries_data_bands)*n))
+                            row = [timestamp]
+                            for mask_band in timeseries_mask_bands:
+                                dt = datetime.datetime.strptime(timestamp, "%Y-%m-%d")
+                                data["time"].append(dt)
+                                data["year"].append(str(dt.year))
+                                data["day"].append(dt.timetuple()[7])
+                                data["area"].append(mask_band)
+                                value = xr.where(self.input_ds[mask_band] == 1, ds[timeseries_band], np.nan).mean(skipna=True).item()
+                                data["mean"].append(value)
+                                row.append(str(value))
+                            writer.writerow(row)
+                            timeseries[timeseries_band] = pd.DataFrame(data)
+                    ts += 1
+                p.complete("Done")
 
         builder = Html5Builder(language="en")
 
@@ -324,9 +403,13 @@ class HTMLGenerator:
         container_div = root.add_element("div")
         overlay_container_div = container_div.add_element("div", {"id": "overlay_container", "style": "display:none;"})
         grid_container_div = container_div.add_element("div", {"id": "grid_container", "style": "display:none;"})
+        timeseries_container_div = container_div.add_element("div", {"id": "timeseries_container", "style": "display:none;"})
 
+        display_timeseries = len(timeseries) > 0
         self.build_overlay_view(overlay_container_div, builder, image_width, image_height)
-        self.build_grid_view(grid_container_div, builder, image_width, image_height)
+        self.build_grid_view(grid_container_div, builder, image_width, image_height, display_timeseries=display_timeseries)
+        if display_timeseries:
+            self.build_timeseries_view(timeseries_container_div, builder, timeseries, timeseries_mask_bands)
 
         scenes = { "layers":[], "index": [] }
 
@@ -374,9 +457,12 @@ class HTMLGenerator:
         with open(os.path.join(self.output_folder, "service_info", "services.json"), "w") as f:
             f.write(json.dumps({}, indent=4))
 
-    def build_grid_view(self, grid_container_div, builder, image_width, image_height):
+    def build_grid_view(self, grid_container_div, builder, image_width, image_height, display_timeseries=False):
         grid_container_div.add_element("input",
                                        {"type": "button", "id": "overlay_view_btn", "value": "Show Overlay View"})
+        if display_timeseries:
+            grid_container_div.add_element("input",
+                                       {"type": "button", "id": "timeseries_view_btn", "value": "Show Timeseries View"})
 
         grid_container_div.add_element("span").add_text(self.title)
 
@@ -593,3 +679,46 @@ class HTMLGenerator:
             image_div.add_fragment(ImageFragment("", layer_definition.layer_name))
 
         builder.body().add_element("span",{"id":"tooltip"})
+
+    def build_timeseries_view(self, timeseries_container_div, builder, timeseries, mask_bands):
+        timeseries_container_div.add_element("input", {"type": "button", "id": "grid_view_btn2", "value": "Show Grid View"})
+        timeseries_container_div.add_element("span").add_text(self.title)
+
+        timeseries_container_div.add_element("h2").add_text("timeseries")
+        sns.set_theme()
+        dpi = 100
+        for band in timeseries:
+            width = self.timeseries.get("plot-width",12)
+            height = self.timeseries.get("plot-height",4)
+            plt.figure(figsize=(width,height),dpi=dpi)
+            folder = os.path.join(self.output_folder, "timeseries")
+            os.makedirs(folder,exist_ok=True)
+            image_path = os.path.join(folder, band + ".png")
+            plot = sns.lineplot(x="time",y="mean",hue="area", data=timeseries[band],marker="o")
+            plot.get_figure().tight_layout()
+            plot.get_figure().savefig(image_path,dpi=dpi)
+            timeseries_container_div.add_element("h3").add_text(band)
+            timeseries_container_div.add_element("img",{"src":f"timeseries/{band}.png"})
+
+        idx = 0
+        n = len(timeseries)*len(mask_bands)
+        p = Progress("Plotting timeseries")
+        timeseries_container_div.add_element("h2").add_text("seasonal")
+        for band in timeseries:
+            for mask in mask_bands:
+                p.report("",idx/n)
+                width = self.timeseries.get("seasonal-plot-width",4)
+                height = self.timeseries.get("seasonal-plot-height",4)
+                sns.set(rc={'figure.figsize': (width, height)})
+                folder = os.path.join(self.output_folder, "seasonal")
+                os.makedirs(folder,exist_ok=True)
+                filename = f"{band}_{mask}.png"
+                image_path = os.path.join(folder, filename)
+                df = timeseries[band]
+                sns.relplot(kind="line", x="day",y="mean",hue=("year"), data=df[df['area'] == mask],marker='o')
+                plt.savefig(image_path,bbox_inches="tight",dpi=dpi)
+                timeseries_container_div.add_element("h3").add_text(f"{band} / {mask}")
+                timeseries_container_div.add_element("img",{"src":f"seasonal/{filename}"})
+        p.complete("Done")
+
+

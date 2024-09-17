@@ -41,12 +41,17 @@ def save_image(arr,vmin,vmax,path,cmap_name="coolwarm"):
 
 def save_image_falsecolour(data_red, data_green, data_blue, path, red_gamma=0.5, green_gamma=0.5, blue_gamma=0.5):
     alist = []
-    for (arr,gamma) in [(data_red,red_gamma),(data_green,green_gamma), (data_blue,blue_gamma)]:
-        arr = np.power(arr,gamma)  # apply gamma correction
+    for (arr,gamma) in [(data_red,red_gamma),(data_green,green_gamma),(data_blue,blue_gamma)]:
+        # normalise reflectances to range 0 to 1
         minv = np.nanmin(arr)
         maxv = np.nanmax(arr)
         v = (arr - minv) / (maxv - minv)
-        alist.append((255*v).astype(np.uint8))
+        # apply gamma correction
+        v = np.where(np.isnan(v), np.nan, np.power(np.where(np.isnan(v),0,v), gamma))
+        # convert to pixel values
+        v = v * 255
+        v = np.where(np.isnan(v),0, v)
+        alist.append(v.astype(np.uint8))
     arr = np.stack(alist,axis=-1)
     im = Image.fromarray(arr,mode="RGB")
     im.save(path)
@@ -123,7 +128,7 @@ class LayerBase:
         da = da.squeeze()
         ndims = len(da.dims)
         if ndims != 2:
-            raise Exception("Data is not 2D")
+            raise Exception(f"Data for layer {self.layer_name} is not 2D")
 
         x_index = da.dims.index(self.x_dimension)
         y_index = da.dims.index(self.y_dimension)

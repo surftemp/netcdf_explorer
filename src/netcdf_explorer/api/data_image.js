@@ -79,8 +79,10 @@ class DataImage {
             for(let x=0; x<this.width; x++) {
                 let v = data[y][x];
                 let rgb = cmap.get_rgb(cmap_name,vmin,vmax,v);
-                ctx.fillStyle="rgb("+255*rgb[0]+","+255*rgb[1]+","+255*rgb[2]+")";
-                ctx.fillRect(x,y,1,1);
+                if (rgb !== null) {
+                    ctx.fillStyle = "rgb(" + 255 * rgb[0] + "," + 255 * rgb[1] + "," + 255 * rgb[2] + ")";
+                    ctx.fillRect(x, y, 1, 1);
+                }
             }
         }
         return canvas.toDataURL("image/png");

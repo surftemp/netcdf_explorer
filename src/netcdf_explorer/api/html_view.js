@@ -33,8 +33,11 @@ class HtmlView {
 
         this.overlay_container = document.getElementById("overlay_container");
         this.grid_container = document.getElementById("grid_container");
+        this.timeseries_container = document.getElementById("timeseries_container");
 
         this.grid_view_button = document.getElementById("grid_view_btn");
+        this.grid_view_button2 = document.getElementById("grid_view_btn2");
+        this.timeseries_view_button = document.getElementById("timeseries_view_btn");
         this.overlay_view_button = document.getElementById("overlay_view_btn");
 
         this.grid_label_controls = {}; // label_group => [label_value => label_control]
@@ -150,13 +153,31 @@ class HtmlView {
 
         this.grid_view_button.addEventListener("click", (evt) => {
             this.overlay_container.style.display = "none";
+            this.timeseries_container.style.display = "none";
             this.grid_container.style.display = "block";
         });
 
+        if (this.grid_view_button2) {
+            this.grid_view_button2.addEventListener("click", (evt) => {
+                this.overlay_container.style.display = "none";
+                this.timeseries_container.style.display = "none";
+                this.grid_container.style.display = "block";
+            });
+        }
+
         this.overlay_view_button.addEventListener("click", (evt) => {
             this.grid_container.style.display = "none";
+            this.timeseries_container.style.display = "none";
             this.overlay_container.style.display = "block";
         });
+
+        if (this.timeseries_view_button) {
+            this.timeseries_view_button.addEventListener("click", (evt) => {
+                this.grid_container.style.display = "none";
+                this.timeseries_container.style.display = "block";
+                this.overlay_container.style.display = "none";
+            });
+        }
 
         this.next_button.addEventListener("click", (evt) => {
             if (this.current_index < this.index.length - 1) {
@@ -316,7 +337,7 @@ class HtmlView {
                     let label_controls = {};
                     for(let label_idx in this.labels.schema[label_group]) {
                         let label_value = this.labels.schema[label_group][label_idx];
-                        let control = document.getElementById(this.get_label_control_id(label_group,label_value,i));
+                        let control = document.getElementById(this.get_label_control_id(label_group, label_value, i));
                         control.checked = false;
                         label_controls[label_value] = control;
                     }

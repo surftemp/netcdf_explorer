@@ -18,7 +18,17 @@
     "grid-width": 250,  // the width of the images presented in the grid view
     "max-zoom": 10      // the maximum zoom allowed in overlay view
   },
-  "labels": ["red","green","blue"],
+  "group": "<b>${str(data['time'].data)[0:10]}</b>", // group is optional
+  "info": {
+    "Date": "${str(data[\"time\"].data)[0:10]}"
+  },
+  "labels": {           // labels specify one or more groups of categories
+    "colours": [        // the group name can match a variable in the data, if so the labels will be loaded from the variable
+      "red",            // the category values in each group are defined here...
+      "green",
+      "blue"
+    ]
+  },
   // specify the layers
   "layers": {
     // layer objects all have a type and label attribute

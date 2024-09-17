@@ -4,10 +4,12 @@ Generate static HTML and images for visualising array data read from a netcdf4 f
 
 ## Installation
 
+Installation into a miniforge enviromnent is suggested.  See [https://github.com/conda-forge/miniforge](https://github.com/conda-forge/miniforge) for installing miniforge.
+
 ```
-conda create -n netcdfexplorer_env python=3.10
-conda activate netcdfexplorer_env
-conda install netcdf4 xarray matplotlib requests datashader pyproj mako
+mamba create -n netcdfexplorer_env python=3.10
+mamba activate netcdfexplorer_env
+mamba install netcdf4 xarray matplotlib requests datashader pyproj mako pyyaml seaborn pandas
 pip install git+https://github.com/surftemp/netcdf_explorer.git
 ```
 
@@ -16,12 +18,14 @@ pip install git+https://github.com/surftemp/netcdf_explorer.git
 Use `generate_html` to create a static HTML file and images from a netcdf4 file
 
 ```
-generate_html --input-path test_input_area97.nc --title "area_97" --output-folder output_folder_with_html --config-path example_layers.json5
+wget https://github.com/surftemp/netcdf_explorer/raw/main/test/area_293_min.nc
+wget https://github.com/surftemp/netcdf_explorer/raw/main/test/example_layers.json5
+generate_html --input-path area_293_min.nc --title "area_293" --output-folder output_folder_with_html --config-path example_layers.json5
 ```
 
 This will:
 
-* read a dataset from file `test_input.nc`
+* read a dataset from file `area_293_min.nc`
 * create HTML output with layers defined in the file `example_layers.json5` (see below) entitled "Test output for netcdf2html"
 * write the generated output html, image files and other associated files to folder `output_folder_with_html`
 
@@ -29,9 +33,9 @@ Open the file `output_folder_with_html/index.html` in your browser to explore th
 
 ## configuration file
 
-You will need to define a JSON file which maps variables in the input dataset to layers in the generated visualisations
+You will need to define a JSON file or YAML formatted which maps variables in the input dataset to layers in the generated visualisations
 
-This [commented example configuration file](src/netcdf_explorer/cli/example_layers.json5) should explain how the configuration file works
+This [commented example configuration file](test/example_layers.json5) should explain how the configuration file works
 
 ## common command line options
 

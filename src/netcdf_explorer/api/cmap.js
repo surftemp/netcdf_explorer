@@ -18,6 +18,9 @@ class CMap {
     }
 
     get_rgb(name,vmin,vmax,v) {
+        if (v === null || v === undefined || isNaN(v)) {
+            return null;
+        }
         let lookup_v = (v - vmin) / (vmax-vmin);
         let cols = this.cmaps[name];
         let ncols = cols.length;

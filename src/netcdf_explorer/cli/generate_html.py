@@ -26,31 +26,10 @@ import json
 import xarray as xr
 import numpy as np
 import logging
+import yaml
+import sys
 
-from netcdf_explorer.api.html_generator import HTMLGenerator
-
-
-def strip_json5_comments(original):
-    # perform a minimal filtering of // comments (a subset of JSON5) and return a JSON compatible string
-    lines = original.split("\n")
-    parsed = ""
-    for line in lines:
-        line = line.rstrip()
-        inq = False
-        for idx in range(len(line) - 1):
-            if line[idx] == '"' and (idx==0 or line[idx-1] != "\\"):
-                inq = not inq
-            else:
-                if not inq:
-                    if line[idx:idx + 2] == "//":
-                        line = line[:idx].rstrip()  # cut off comment
-                        break
-        if line:
-            if parsed:
-                parsed += "\n"
-            parsed += line
-    return parsed
-
+from netcdf_explorer.api.html_generator import HTMLGenerator, strip_json5_comments
 
 def subset(ds, case_dimension, sample_count, sample_cases):
     n = len(ds[case_dimension])
@@ -74,7 +53,7 @@ def main():
     parser.add_argument("--netcdf-download-filename",
                         help="include the netcdf4 file with this name and add download link in the HTML")
     parser.add_argument("--output-folder", help="folder to write html output", default="html_output")
-    parser.add_argument("--config-path", help="JSON file specifying one or more layer specifications",
+    parser.add_argument("--config-path", help="JSON or YAML file specifying one or more layer specifications",
                         default="layers.json", required=True)
 
     parser.add_argument("--sample-count", type=int, default=None,
@@ -90,8 +69,11 @@ def main():
     logging.basicConfig(level=logging.INFO)
 
     with open(args.config_path) as f:
-        stripped = strip_json5_comments(f.read())
-        config = json.loads(stripped)
+        if args.config_path.endswith(".yml") or args.config_path.endswith(".yaml"):
+            config = yaml.load(f, Loader=yaml.FullLoader)
+        else:
+            stripped = strip_json5_comments(f.read())
+            config = json.loads(stripped)
         dimensions = config.get("dimensions", {})
         coordinates = config.get("coordinates", {})
         case_dimension = dimensions.get("case", None)
@@ -100,15 +82,20 @@ def main():
     filename_list = []
     indices_list = []
 
-    if not os.path.isdir(args.input_path):
+    if os.path.isfile(args.input_path):
         input_paths = [args.input_path]
+    elif os.path.isdir(args.input_path):
+        input_paths = list(map(lambda name: os.path.join(args.input_path, name),
+                               list(filter(lambda name: name.endswith(".nc"),os.listdir(args.input_path)))))
     else:
-        input_paths = list(filter(lambda name: name.endswith(".nc"),os.listdir(args.input_path)))
+        print(f"Error - {args.input_path} is not a file or directory")
+        sys.exit(-1)
+
     file_count = 0
-    for filename in input_paths:
+    for input_path in input_paths:
         file_count += 1
-        print(f"[Reading {filename} {file_count}/{len(input_paths)}]")
-        ds = xr.open_dataset(os.path.join(args.input_path,filename))
+        print(f"[Reading {input_path} {file_count}/{len(input_paths)}]")
+        ds = xr.open_dataset(input_path)
         if case_dimension:
             ds, indices = subset(ds, case_dimension, sample_count=args.sample_count, sample_cases=args.sample_cases)
             n = ds[case_dimension].shape[0]
@@ -117,10 +104,10 @@ def main():
             if case_dimension not in ds[coordinates["y"]].dims:
                 ds[coordinates["y"]] = ds[coordinates["y"]].expand_dims({case_dimension:n},axis=0)
             for i in indices:
-                filename_list.append(filename)
+                filename_list.append(input_path)
                 indices_list.append(i)
         else:
-            filename_list.append(filename)
+            filename_list.append(input_path)
             indices_list.append(0)
         ds_list.append(ds)
         if args.file_count is not None and file_count >= args.file_count:
