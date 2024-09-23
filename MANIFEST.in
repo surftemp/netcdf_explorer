@@ -1,3 +1,5 @@
-include src/netcdf2html/api/html_view.js
-include src/netcdf2html/api/index.css
+include src/netcdf_explorer/api/html_view.js
+include src/netcdf_explorer/api/index.css
+include src/netcdf_explorer/api/cmap.js
+include src/netcdf_explorer/api/data_image.js
 

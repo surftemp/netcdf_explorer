@@ -9,7 +9,7 @@ Installation into a miniforge enviromnent is suggested.  See [https://github.com
 ```
 mamba create -n netcdfexplorer_env python=3.10
 mamba activate netcdfexplorer_env
-mamba install netcdf4 xarray matplotlib requests datashader pyproj mako pyyaml seaborn pandas
+mamba install netcdf4 xarray matplotlib requests datashader pyproj mako pyyaml seaborn pandas flask
 pip install git+https://github.com/surftemp/netcdf_explorer.git
 ```
 
