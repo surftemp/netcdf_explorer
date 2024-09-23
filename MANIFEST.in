@@ -2,4 +2,7 @@ include src/netcdf_explorer/api/html_view.js
 include src/netcdf_explorer/api/index.css
 include src/netcdf_explorer/api/cmap.js
 include src/netcdf_explorer/api/data_image.js
+include src/netcdf_explorer/misc/cmap.js
+include src/netcdf_explorer/misc/Roboto-Black.ttf
+include src/netcdf_explorer/misc/cmaps/*.json
 
