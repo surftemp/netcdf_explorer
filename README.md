@@ -2,6 +2,15 @@
 
 Generate static HTML and images for visualising array data read from a netcdf4 file
 
+
+* `generate_html`: overlay view
+  
+![image](https://github.com/user-attachments/assets/7da5100e-f15c-4d76-8d07-b920752c5ec2)
+
+* `generate_html`: grid view
+  
+![image](https://github.com/user-attachments/assets/b6a408dc-54d4-479f-9bd8-0f50b2326c89)
+
 ## Installation
 
 Installation into a miniforge enviromnent is suggested.  See [https://github.com/conda-forge/miniforge](https://github.com/conda-forge/miniforge) for installing miniforge.
