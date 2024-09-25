@@ -31,13 +31,13 @@ This will:
 
 Open the file `output_folder_with_html/index.html` in your browser to explore the generated imagery
 
-## configuration file
+### configuration file
 
 You will need to define a JSON file or YAML formatted which maps variables in the input dataset to layers in the generated visualisations
 
 This [commented example configuration file](test/example_layers.json5) should explain how the configuration file works
 
-## common command line options
+### common command line options
 
 | option          | description                                                                                       | example                   |
 |-----------------|---------------------------------------------------------------------------------------------------|---------------------------|
@@ -46,13 +46,14 @@ This [commented example configuration file](test/example_layers.json5) should ex
  | --config-path   | specify the path of a JSON file containing the configuration                                      | --config-path config.json | 
  | --output-folder | specify output folder into which index.html and image files are written                           | --output-folder html_out  | 
 
-## other command line options
+### other command line options
 
 | option                     | description                           | example                              |
 |----------------------------|---------------------------------------|--------------------------------------|
  | --sample-count             | limit the number of cases to display  | --sample-count 100                   |
  | --sample-cases             | specify which cases to display        | --sample-cases 4 10 12               |
  | --netcdf-download-filename | provide a link to download the data in the generated html  | --netcdf-download-filename area97.nc | 
+
 
 ## bigplot
 
@@ -74,6 +75,11 @@ Example usage:
 ```
 bigplot --input-path data.nc --input-variable myvar --title "MyVAR plot" --cmap viridis --vmin 0 --vmax 100 --output-path plot.png
 ```
+
+## acknowledgements
+
+`generate_html` incorporates code from leafletjs - see [https://leafletjs.com/](https://leafletjs.com/)
+
 
 
 

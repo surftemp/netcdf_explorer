@@ -2,13 +2,6 @@ body {
     font-size: 24px;
 }
 
-.image_holder {
-}
-
-.image_holder img {
-    position: absolute;
-}
-
 #slider_div {
 
 }
@@ -17,10 +10,11 @@ body {
     margin-top: 5px;
     margin-bottom: 5px;
     position: fixed;
-    z-index: 9;
+    z-index: 1000;  /* needs to be larger than the values used in leaflet */
     background-color: #f1f1f1;
     border: 1px solid #d3d3d3;
     text-align: center;
+    min-width: 200px;
 }
 
 .control_container_header {
@@ -31,15 +25,18 @@ body {
   color: #fff;
 }
 
-.sccene_label {
+.scene_label {
     margin-left: 20px;
 }
 
+/*
 img {
     border: 1px solid black;
     padding: 3px;
     margin: 3px;
 }
+*/
+
 
 fieldset {
     border-radius: 5px;
@@ -78,4 +75,8 @@ th, td {
 
 input[type=number] {
     width: 50px;
+}
+
+#map {
+    position: absolute; top: 80px; bottom: 0px; left: 0px; right: 0px;
 }

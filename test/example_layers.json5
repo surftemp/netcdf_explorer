@@ -67,7 +67,11 @@
       "band": "ST", // use the ST variable in the input dataset
       "min_value": 270, // specify the range of values to be depicted
       "max_value": 300,
-      "cmap": "rainbow" // specify a colour map, known to matplotlib (see https://matplotlib.org/stable/users/explain/colors/colormaps.html)
+      "cmap": "rainbow", // specify a colour map, known to matplotlib (see https://matplotlib.org/stable/users/explain/colors/colormaps.html)
+      "data": {
+        "label": "B10_ST: {value} K",
+        "fixed": 2
+      }
     },
     "REF": {
       "label": "Reflectance",

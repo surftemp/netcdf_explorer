@@ -25,8 +25,12 @@ class HtmlView {
         this.show_filters = document.getElementById("show_filters");
         this.filter_container = document.getElementById("filter_container");
         this.scene_label_elt = document.getElementById("scene_label");
+
         this.show_labels = document.getElementById("show_labels");
         this.labels_container = document.getElementById("labels_container");
+
+        this.show_data = document.getElementById("show_data");
+        this.data_container = document.getElementById("data_container");
 
         this.show_info = document.getElementById("show_info");
         this.info_container = document.getElementById("info_container");
@@ -50,6 +54,23 @@ class HtmlView {
 
         // record custom min/max/cmaps selected in overlay view for data layers only
         this.data_layers = {};
+
+        this.lm = new LeafletMap( 'map',
+               async (y_frac,x_frac) => { this.handle_map_mouseover(y_frac, x_frac); },
+               async (zoom) => { this.set_zoom(zoom); }
+           );
+
+        this.zoom = 1;
+        this.handle_map_mouseover(null,null);
+    }
+
+    handle_map_mouseover(y_frac, x_frac) {
+        let data_content = document.getElementById("data_content");
+        let html = "<p>No Data</p>";
+        if (this.di && y_frac !== null && x_frac !== null) {
+            html = this.di.get_popup_html(y_frac, x_frac)
+        }
+        data_content.innerHTML = html;
     }
 
     async load() {
@@ -216,11 +237,10 @@ class HtmlView {
 
         this.scenes.layers.forEach(layer => {
             let opacity = (layer.name in this.layer_opacities) ? this.layer_opacities[layer.name] : 1.0;
-            let img = document.getElementById(layer.name);
-            img.style.opacity = opacity;
+            this.lm.set_layer_opacity(layer.name, opacity);
             let r = document.getElementById(layer.name+"_opacity");
             r.value = String(100 * opacity);
-            r.addEventListener("input", this.create_opacity_callback(img, layer.name));
+            r.addEventListener("input", this.create_opacity_callback(layer.name));
         });
 
         if (this.layer_container && this.show_layers) {
@@ -263,16 +283,20 @@ class HtmlView {
             });
         }
 
-        this.zoom_control.addEventListener("input", (evt) => {
-            this.set_zoom();
-        });
-        this.set_zoom();
+        if (this.data_container && this.show_data) {
+            this.show_data.addEventListener("input", (evt) => {
+                let s = "none";
+                if (evt.target.checked) {
+                    s = "block";
+                }
+                this.data_container.style.display = s;
+            });
+        }
 
         this.close_all_btn.addEventListener("click", (evt) => {
             this.scenes.layers.forEach(layer => {
                 this.layer_opacities[layer.name] = 0.0;
-                let img = document.getElementById(layer.name);
-                img.style.opacity = 0.0;
+                this.lm.set_layer_opacity(layer.name,0.0);
                 let r = document.getElementById(layer.name+"_opacity");
                 r.value = "0";
             });
@@ -392,24 +416,19 @@ class HtmlView {
         this.show();
     }
 
-    set_zoom() {
+    set_zoom(zoom) {
         // update the overlay zoom
-        let zoom = Number.parseInt(zoom_control.value);
-        this.zoom = Math.sqrt(zoom);
+        this.zoom = zoom;
         this.scenes.layers.forEach(layer => {
-            let img = document.getElementById(layer.name);
             if (layer.wms_url) {
-                img.src = layer.wms_url.replace("{WIDTH}",""+this.zoom*image_width).replace("{HEIGHT}",""+this.zoom*image_width)
+                let wms_url = layer.wms_url.replace("{WIDTH}",""+this.zoom*image_width).replace("{HEIGHT}",""+this.zoom*image_width)
                     .replace("{XMIN}",""+this.scenes.index[this.current_index].x_min)
                     .replace("{YMIN}",""+this.scenes.index[this.current_index].y_min)
                     .replace("{XMAX}",""+this.scenes.index[this.current_index].x_max)
                     .replace("{YMAX}",""+this.scenes.index[this.current_index].y_max);
+                this.lm.add_image_layer(layer.name, wms_url);
             }
-            img.width = Math.round(this.zoom * image_width);
         });
-        if (this.di) {
-            this.di.set_zoom(this.zoom);
-        }
     }
 
     update_time_range() {
@@ -450,11 +469,11 @@ class HtmlView {
         }
     }
 
-    create_opacity_callback(for_img, layer_name) {
+    create_opacity_callback(layer_name) {
         // create a callback for changes to an overlay view opacity slider
         return (evt) => {
             this.layer_opacities[layer_name] = Number.parseFloat(evt.target.value) / 100;
-            for_img.style.opacity = this.layer_opacities[layer_name];
+            this.lm.set_layer_opacity(layer_name,this.layer_opacities[layer_name]);
         }
     }
 
@@ -485,13 +504,14 @@ class HtmlView {
 
     update_image(layer_name) {
         let image_srcs = this.index[this.current_index].image_srcs;
-        let img = document.getElementById(layer_name);
+        let url = "";
         if (layer_name in this.data_layers) {
             let dl = this.data_layers[layer_name];
-            img.src = this.di.get_image_url(layer_name, dl.cmap, dl.vmin, dl.vmax);
+            url = this.di.get_image_url(layer_name, dl.cmap, dl.vmin, dl.vmax);
         } else {
-            img.src = image_srcs[layer_name];
+            url = image_srcs[layer_name];
         }
+        this.lm.add_image_layer(layer_name,url);
     }
 
     show() {
@@ -502,24 +522,16 @@ class HtmlView {
 
                 let label_specs = this.index[idx].label_specs;
 
-                for (let layer_name in image_srcs) {
-                    this.update_image(layer_name);
+                for (let idx=this.scenes.layers.length-1; idx >= 0; idx=idx-1) {
+                    this.update_image(this.scenes.layers[idx].name);
                 }
                 let data_srcs = this.index[idx].data_srcs;
-                if (this.di) {
-                    this.di.unbind_tooltips();
-                }
+
                 this.di = new DataImage("viridis");
 
-                let zoom = Number.parseInt(this.zoom_control.value);
-                zoom = Math.sqrt(zoom);
-                this.di.set_zoom(zoom);
                 for (let layer_name in data_srcs) {
                     this.di.load(layer_name, data_srcs[layer_name]);
                 }
-                let idiv = document.getElementById("image_div");
-                // pass in img padding+margin as the x and y offsets to binding tooltips
-                this.di.bind_tooltips_to_img(idiv, 6, 6);
 
                 if (this.info_content) {
                     let info = this.index[idx].info;
@@ -599,14 +611,18 @@ window.addEventListener("load", async (ect) => {
    hv.setup_drag(document.getElementById("layer_container"),document.getElementById("layer_container_header"), 400, 400);
    let filter_container = document.getElementById("filter_container");
    if (filter_container) {
-      hv.setup_drag(filter_container,document.getElementById("filter_container_header"), 200, 400);
+      hv.setup_drag(filter_container,document.getElementById("filter_container_header"), 100, 400);
    }
    let info_container = document.getElementById("info_container");
    if (info_container) {
-       hv.setup_drag(info_container,document.getElementById("info_container_header"), 50, 400);
+       hv.setup_drag(info_container,document.getElementById("info_container_header"), 200, 400);
    }
    let labels_container = document.getElementById("labels_container");
    if (labels_container) {
-       hv.setup_drag(labels_container,document.getElementById("labels_container_header"), 50, 400);
+       hv.setup_drag(labels_container,document.getElementById("labels_container_header"), 300, 400);
+   }
+   let data_container = document.getElementById("data_container");
+   if (data_container) {
+       hv.setup_drag(data_container,document.getElementById("data_container_header"), 400, 400);
    }
 });

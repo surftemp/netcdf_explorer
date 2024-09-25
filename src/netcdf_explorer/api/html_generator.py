@@ -47,6 +47,7 @@ from netcdf_explorer.fragments.legend import LegendFragment
 
 js_paths = [os.path.join(os.path.split(__file__)[0], "cmap.js"),
             os.path.join(os.path.split(__file__)[0], "data_image.js"),
+            os.path.join(os.path.split(__file__)[0], "leaflet_map.js"),
             os.path.join(os.path.split(__file__)[0], "html_view.js")]
 css_path = os.path.join(os.path.split(__file__)[0], "index.css")
 
@@ -155,7 +156,7 @@ class HTMLGenerator:
             layer = LayerFactory.create(self, layer_name, layer_spec)
             self.layer_definitions.append(layer)
 
-        self.all_cmaps = ["Purples", "gist_rainbow", "gist_ncar", "Blues", "Greys", "autumn", "gist_gray", "magma", "Set3",
+        self.all_cmaps = sorted(["Purples", "gist_rainbow", "gist_ncar", "Blues", "Greys", "autumn", "gist_gray", "magma", "Set3",
                      "cool", "tab20c", "GnBu", "brg", "cividis", "Pastel1", "YlOrRd", "Spectral", "gist_earth", "PuBu",
                      "OrRd", "PuRd", "plasma", "winter", "PuBuGn", "inferno", "bwr", "RdGy", "Wistia", "gist_stern",
                      "gist_heat", "BuGn", "twilight", "RdBu", "twilight_shifted", "Paired", "PiYG", "RdYlBu", "Dark2",
@@ -163,7 +164,7 @@ class HTMLGenerator:
                      "gnuplot2", "Oranges", "turbo", "YlGn", "PuOr", "hot", "Set2", "afmhot", "hsv", "YlOrBr",
                      "terrain", "Accent", "copper", "cubehelix", "RdPu", "tab10", "Reds", "Greens", "gray", "rainbow",
                      "spring", "tab20", "pink", "coolwarm", "RdYlGn", "Set1", "tab20b", "flag", "gist_yarg", "binary",
-                     "YlGnBu", "seismic", "prism", "Pastel2", "jet", "summer"]
+                     "YlGnBu", "seismic", "prism", "Pastel2", "jet", "summer"], key=lambda v:v.lower())
 
         for cmap in self.all_cmaps:
             source_path = os.path.join(os.path.abspath(os.path.split(__file__)[0]),"..","misc","cmaps", cmap+".json")
@@ -397,6 +398,11 @@ class HTMLGenerator:
         builder.head().add_element("style").add_text(anti_aliasing_style)
         builder.head().add_element("script", {"src": "index.js"})
         builder.head().add_element("link", {"rel": "stylesheet", "href": "index.css"})
+        builder.head().add_element("link", {"rel": "stylesheet", "href":"https://unpkg.com/leaflet@1.9.4/dist/leaflet.css",
+                                            "integrity":"sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=", "crossorigin":""})
+        builder.head().add_element("script", {"src":"https://unpkg.com/leaflet@1.9.4/dist/leaflet.js",
+                                              "integrity":"sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=",
+                                              "crossorigin":""})
 
         root = builder.body().add_element("div")
 
@@ -540,14 +546,6 @@ class HTMLGenerator:
 
     def build_overlay_view(self, overlay_container_div, builder, image_width, image_height):
 
-        initial_zoom = 768 / image_width
-        if initial_zoom < 1:
-            initial_zoom = 1
-        if self.max_zoom and self.max_zoom > initial_zoom:
-            max_zoom = self.max_zoom
-        else:
-            max_zoom = 2048 / image_width
-
         overlay_container_div.add_element("input", {"type": "button", "id": "grid_view_btn", "value": "Show Grid View"})
         overlay_container_div.add_element("span").add_text(self.title)
 
@@ -557,12 +555,12 @@ class HTMLGenerator:
                                                     "download": self.netcdf_download_filename}).add_text(
                 "download netcdf4")
 
-        overlay_container_div.add_element("span", {"class": "spacer"}).add_text("|")
-        overlay_container_div.add_element("label", {"for": "zoom_control"}).add_text("Zoom")
-        overlay_container_div.add_element("input",
-                                          {"type": "range", "id": "zoom_control", "min": 1, "max": int(max_zoom),
-                                           "step": 1,
-                                           "value": initial_zoom})
+        has_data = False
+        for layer_definition in self.layer_definitions:
+            if layer_definition.has_legend():
+                if isinstance(layer_definition,LayerSingleBand) and layer_definition.save_data():
+                    has_data = True
+                    break
 
         overlay_container_div.add_element("span", {"class": "spacer"}).add_text("|")
         overlay_container_div.add_element("button", {"id": "prev_btn"}).add_text("Previous")
@@ -590,6 +588,11 @@ class HTMLGenerator:
             overlay_container_div.add_element("input",
                                               {"type": "checkbox", "id": "show_labels",
                                                "checked": "checked"}).add_text("Show Labels")
+
+        if has_data:
+            overlay_container_div.add_element("input",
+                                              {"type": "checkbox", "id": "show_data",
+                                               "checked": "checked"}).add_text("Show Data")
 
         controls_div = overlay_container_div.add_element("div", {"id": "layer_container", "class": "control_container"})
         controls_div.add_element("div", {"id": "layer_container_header", "class": "control_container_header"}).add_text(
@@ -670,15 +673,19 @@ class HTMLGenerator:
 
             labels_div.add_fragment(self.generate_label_controls(None))
 
+        if has_data:
+            data_div = overlay_container_div.add_element("div",
+                                                           {"id": "data_container", "class": "control_container"})
+            data_div.add_element("div",
+                                   {"id": "data_container_header", "class": "control_container_header"}).add_text(
+                "Data")
+            data_div.add_element("div", attrs={"id":"data_content"})
+
         self.layer_definitions.reverse()
 
-        image_container = overlay_container_div.add_element("div")
+        overlay_container_div.add_element("div",{"id":"map"})
 
-        image_div = image_container.add_element("div", {"id": "image_div", "class": "image_holder"})
-        for layer_definition in self.layer_definitions:
-            image_div.add_fragment(ImageFragment("", layer_definition.layer_name))
 
-        builder.body().add_element("span",{"id":"tooltip"})
 
     def build_timeseries_view(self, timeseries_container_div, builder, timeseries, mask_bands):
         timeseries_container_div.add_element("input", {"type": "button", "id": "grid_view_btn2", "value": "Show Grid View"})
