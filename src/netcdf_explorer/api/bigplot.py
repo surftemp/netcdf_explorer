@@ -54,10 +54,9 @@ class CMap:
 
 class BigPlot:
 
-    def __init__(self, input_path, input_variable, x, y, vmin, vmax, vformat, cmap_name, title,  output_path, legend_width=300, legend_height=50, plot_width=1800, flip=True, theight=50,
+    def __init__(self, data_array, x, y, vmin, vmax, vformat, cmap_name, title,  output_path, legend_width=300, legend_height=50, plot_width=1800, flip=True, theight=50,
                  selectors={}, iselectors={}, font_path=None, border=20):
-        self.input_path = input_path
-        self.input_variable = input_variable
+        self.data_array = data_array
         self.x = x
         self.y = y
         self.vmin = vmin
@@ -71,7 +70,7 @@ class BigPlot:
         self.plot_width = plot_width
         self.flip = flip
         self.theight = theight
-        cmap_path = os.path.join(os.path.split(__file__)[0],"cmaps",self.cmap_name+".json")
+        cmap_path = os.path.join(os.path.split(__file__)[0],"..","misc","cmaps",self.cmap_name+".json")
         self.cmap_colors = []
         self.cmap = None
         self.selectors = selectors
@@ -80,17 +79,15 @@ class BigPlot:
         self.border = border
         with open(cmap_path) as f:
             o = json.loads(f.read())
-            for rgb in o["colors"]:
+            for rgb in o:
                 r = int(255*rgb[0])
                 g = int(255*rgb[1])
                 b = int(255*rgb[2])
                 self.cmap_colors.append(f"#{r:02X}{g:02X}{b:02X}")
-            self.cmap = CMap(o["colors"],self.vmin,self.vmax)
+            self.cmap = CMap(o,self.vmin,self.vmax)
 
     def run(self):
-        ds = xr.open_dataset(self.input_path)
-
-        da = ds[self.input_variable]
+        da = self.data_array
 
         if self.selectors:
             da = da.sel(**self.selectors)
@@ -111,10 +108,10 @@ class BigPlot:
 
         plot_height = int(self.plot_width*(h/w))
         cvs = dsh.Canvas(plot_width=self.plot_width, plot_height=plot_height,
-                    x_range=(float(ds[self.x].min()), float(ds[self.x].max())),
-                    y_range=(float(ds[self.y].min()), float(ds[self.y].max())))
+                    x_range=(float(da[self.x].min()), float(da[self.x].max())),
+                    y_range=(float(da[self.y].min()), float(da[self.y].max())))
 
-        agg = cvs.raster(ds[self.input_variable].squeeze(), agg=rd.first, interpolate='linear')
+        agg = cvs.raster(da.squeeze(), agg=rd.first, interpolate='linear')
 
         shaded = tf.shade(agg, cmap=self.cmap_colors,
                       how="linear",

@@ -17,9 +17,9 @@
 # DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+import xarray as xr
 
 from netcdf_explorer.api.bigplot import BigPlot
-
 
 def main():
     import argparse
@@ -57,12 +57,16 @@ def main():
         for (dimension, min, max) in args.selector:
             iselectors[dimension] = range(min, max+1)
 
-    bp = BigPlot(input_path=args.input_path, input_variable=args.input_variable,
-                        x=args.x, y=args.y, vmin=args.vmin, vmax=args.vmax,vformat=args.vformat,
-                        cmap_name=args.cmap,
-                        legend_width=args.legend_width, legend_height=args.legend_height,
-                        title=args.title,theight=args.title_height, output_path=args.output_path, plot_width=args.plot_width, flip=args.flip,
-                        selectors=selectors, iselectors=iselectors, font_path=args.font_path)
+    ds = xr.open_dataset(args.input_path)
+
+    da = ds[args.input_variable]
+
+    bp = BigPlot(data_array=da,
+            x=args.x, y=args.y, vmin=args.vmin, vmax=args.vmax,vformat=args.vformat,
+            cmap_name=args.cmap,
+            legend_width=args.legend_width, legend_height=args.legend_height,
+            title=args.title,theight=args.title_height, output_path=args.output_path, plot_width=args.plot_width, flip=args.flip,
+            selectors=selectors, iselectors=iselectors, font_path=args.font_path)
     bp.run()
 
 if __name__ == '__main__':
