@@ -66,11 +66,13 @@ class HtmlView {
 
     handle_map_mouseover(y_frac, x_frac) {
         let data_content = document.getElementById("data_content");
-        let html = "<p>No Data</p>";
-        if (this.di && y_frac !== null && x_frac !== null) {
-            html = this.di.get_popup_html(y_frac, x_frac)
+        if (data_content) {
+            let html = "<p>No Data</p>";
+            if (this.di && y_frac !== null && x_frac !== null) {
+                html = this.di.get_popup_html(y_frac, x_frac)
+            }
+            data_content.innerHTML = html;
         }
-        data_content.innerHTML = html;
     }
 
     async load() {
