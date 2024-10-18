@@ -18,7 +18,6 @@
     "grid-width": 250,  // the width of the images presented in the grid view
     "max-zoom": 10      // the maximum zoom allowed in overlay view
   },
-  "group": "<b>${str(data['time'].data)[0:10]}</b>", // group is optional
   "info": {
     "Date": "${str(data[\"time\"].data)[0:10]}"
   },
@@ -29,14 +28,26 @@
       "blue"
     ]
   },
+  "derive_bands": {
+    "CLOUD_MASK": "not (QA_PIXEL & 8 == 0)",
+    "EXTENDED_CLOUD_MASK": "not (QA_PIXEL & 30 == 0)"
+  },
+  "timeseries": {
+    "plots": {
+      "ST_cloudy": {
+        "masks": ["CLOUD_MASK","EXTENDED_CLOUD_MASK"],
+        "variables": ["ST"]
+      }
+    }
+  },
   // specify the layers
   "layers": {
     // layer objects all have a type and label attribute
     // the label is a meaningful description of the layer, used in the html output
     // the type is one of the following:
-    //     type=mask: layer represents an integer variable containing a bit mask
+    //     type=mask: layer represents an integer or boolean variable containing a mask
     //     type=single: layer represents a variable containing a continuous quantity
-    //     type=discrete: layer represents a variable containing a discretel quantity
+    //     type=discrete: layer represents a variable containing a discrete quantity
     //     type=rgb: layer represents a false colour depiction of three variables
     //     type=wms: layer represents a WMS image obtained from a specified WMS service
     //
@@ -46,8 +57,7 @@
     "CLOUD_MASK": {
       "label": "Basic Cloud Mask (8)",
       "type": "mask",
-      "band": "QA_PIXEL",
-      "mask": 8, // include pixels where variable & <mask> > 0
+      "band": "CLOUD_MASK",
       "r": 200,  // r,g,b specifies the colour to show when the pixel is included (transparent if not)
       "g": 200,
       "b": 200
@@ -55,8 +65,7 @@
     "ALL_CLOUD_MASK": {
       "label": "Extended Cloud Mask (30)",
       "type": "mask",
-      "band": "QA_PIXEL",
-      "mask": 30,
+      "band": "EXTENDED_CLOUD_MASK",
       "r": 150,
       "g": 150,
       "b": 150

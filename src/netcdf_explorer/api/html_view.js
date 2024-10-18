@@ -1,4 +1,3 @@
-
 // manage the HTML comprising grid and overlay views
 // bind the controls in the views
 
@@ -38,11 +37,15 @@ class HtmlView {
         this.overlay_container = document.getElementById("overlay_container");
         this.grid_container = document.getElementById("grid_container");
         this.timeseries_container = document.getElementById("timeseries_container");
+        this.terrain_container = document.getElementById("terrain_container");
 
         this.grid_view_button = document.getElementById("grid_view_btn");
         this.grid_view_button2 = document.getElementById("grid_view_btn2");
         this.timeseries_view_button = document.getElementById("timeseries_view_btn");
         this.overlay_view_button = document.getElementById("overlay_view_btn");
+
+        this.terrain_view_button = document.getElementById("terrain_view_btn");
+        this.exit_terrain_view_button = document.getElementById("exit_terrain_view");
 
         this.grid_label_controls = {}; // label_group => [label_value => label_control]
         this.overlay_label_controls = {}; // label_group => label_value => label_control
@@ -55,13 +58,31 @@ class HtmlView {
         // record custom min/max/cmaps selected in overlay view for data layers only
         this.data_layers = {};
 
-        this.lm = new LeafletMap( 'map',
-               async (y_frac,x_frac) => { this.handle_map_mouseover(y_frac, x_frac); },
-               async (zoom) => { this.set_zoom(zoom); }
-           );
+        if (this.overlay_container) {
+            this.lm = new LeafletMap('map',
+                async (y_frac, x_frac) => {
+                    this.handle_map_mouseover(y_frac, x_frac);
+                },
+                async (zoom) => {
+                    this.set_zoom(zoom);
+                }
+            );
 
-        this.zoom = 1;
-        this.handle_map_mouseover(null,null);
+            this.zoom = 1;
+            this.handle_map_mouseover(null, null);
+        }
+
+        this.timeseries_charts = null;
+
+        if (!this.grid_container) {
+            if (this.timeseries_container) {
+                this.timeseries_container.style.display = "block";
+                this.load_timeseries().then(() => {
+                });
+            }
+        }
+
+        this.tv = null; // populated with a TerrainView object when in "terrain view" mode
     }
 
     handle_map_mouseover(y_frac, x_frac) {
@@ -75,11 +96,30 @@ class HtmlView {
         }
     }
 
+    async load_timeseries() {
+        if (this.timeseries_charts === null) {
+            this.timeseries_charts = {};
+            let r = await fetch("timeseries.json");
+            let timeseries = await r.json();
+            if (timeseries) {
+                timeseries.forEach(o => {
+                    let name = o["name"];
+                    let csv_url = o["csv_url"];
+                    let spec = o["spec"];
+                    let div_id = o["div_id"];
+                    let chart = new TimeseriesChart(div_id, csv_url, spec);
+                    this.timeseries_charts[name] = chart;
+                });
+            }
+        }
+    }
+
     async load() {
         // load data files: scenes.json and (optionally) labels.json
         // this needs to be called before init
         let r = await fetch("scenes.json");
         this.scenes = await r.json();
+
 
         if (this.download_labels_btn) {
             try {
@@ -100,14 +140,14 @@ class HtmlView {
         try {
             r = await fetch("service_info/services.json");
             this.services = await r.json();
-        } catch(e) {
+        } catch (e) {
 
         }
     }
 
     get_label_control_id(label_group, label_value, index) {
         // obtain the expected id for a label control
-        let control_id = "radio_"+label_group+"_"+label_value;
+        let control_id = "radio_" + label_group + "_" + label_value;
         if (index !== null) {
             control_id += "_" + index;
         }
@@ -141,7 +181,7 @@ class HtmlView {
             let new_min = Number.parseFloat(min_control.value);
             let new_max = Number.parseFloat(max_control.value);
             let new_cmap = select_control.value;
-            this.data_layers[layer_name] = {"cmap":new_cmap, "vmin":new_min, "vmax":new_max}
+            this.data_layers[layer_name] = {"cmap": new_cmap, "vmin": new_min, "vmax": new_max}
             await cmap.load(new_cmap);
             this.update_data_layer(layer_name);
         }
@@ -153,7 +193,7 @@ class HtmlView {
     async notify_label_update(label_group, i, label) {
         // notify the server (if this service is supported) of the label update
         if ("labels" in this.services) {
-            await fetch("/label/"+label_group+"/"+i+"/"+label, { "method":"POST"});
+            await fetch("/label/" + label_group + "/" + i + "/" + label, {"method": "POST"});
         }
     }
 
@@ -168,63 +208,79 @@ class HtmlView {
         }
     }
 
+    get_layer_group(layer_name) {
+        for(let group in this.scenes.layer_groups) {
+            if (this.scenes.layer_groups[group].includes(layer_name)) {
+                return group;
+            }
+        }
+        return "";
+    }
+
     init() {
         // initialise the view, to be called once load has completed
         // bind to the controls in this page
 
         const params = new URLSearchParams(window.location.search);
 
-        this.grid_view_button.addEventListener("click", (evt) => {
-            this.overlay_container.style.display = "none";
-            this.timeseries_container.style.display = "none";
-            this.grid_container.style.display = "block";
-        });
+        if (this.grid_view_button) {
+            this.grid_view_button.addEventListener("click", (evt) => {
+                this.show_container(this.grid_container);
+            });
+        }
 
         if (this.grid_view_button2) {
             this.grid_view_button2.addEventListener("click", (evt) => {
-                this.overlay_container.style.display = "none";
-                this.timeseries_container.style.display = "none";
-                this.grid_container.style.display = "block";
+                this.show_container(this.grid_container);
             });
         }
 
-        this.overlay_view_button.addEventListener("click", (evt) => {
-            this.grid_container.style.display = "none";
-            this.timeseries_container.style.display = "none";
-            this.overlay_container.style.display = "block";
-        });
+        if (this.overlay_view_button) {
+            this.overlay_view_button.addEventListener("click", (evt) => {
+                this.show_container(this.overlay_container);
+            });
+        }
 
         if (this.timeseries_view_button) {
             this.timeseries_view_button.addEventListener("click", (evt) => {
-                this.grid_container.style.display = "none";
-                this.timeseries_container.style.display = "block";
-                this.overlay_container.style.display = "none";
+                this.show_container(null);
+                if (this.timeseries_container) {
+                    this.timeseries_container.style.display = "block";
+                    this.load_timeseries().then(() => {
+                    });
+                }
             });
         }
 
-        this.next_button.addEventListener("click", (evt) => {
-            if (this.current_index < this.index.length - 1) {
-                this.current_index += 1;
-                this.update_time_range();
-                this.show();
-            }
-        });
+        if (this.next_button) {
+            this.next_button.addEventListener("click", (evt) => {
+                if (this.current_index < this.index.length - 1) {
+                    this.current_index += 1;
+                    this.update_time_range();
+                    this.show();
+                }
+            });
+        }
 
-        this.prev_button.addEventListener("click", (evt) => {
-            if (this.current_index > 0) {
-                this.current_index -= 1;
-                this.update_time_range();
-                this.show();
-            }
-        });
+        if (this.prev_button) {
+            this.prev_button.addEventListener("click", (evt) => {
+                if (this.current_index > 0) {
+                    this.current_index -= 1;
+                    this.update_time_range();
+                    this.show();
+                }
+            });
+        }
 
-        this.time_range.addEventListener("input", (evt) => {
-            if (this.index.length) {
-                let fraction = Number.parseFloat(evt.target.value) / 100;
-                this.current_index = Math.round(fraction * (this.index.length - 1));
-                this.show();
-            }
-        });
+        if (this.time_range) {
+            this.time_range.addEventListener("input", (evt) => {
+                if (this.index.length) {
+                    let fraction = Number.parseFloat(evt.target.value) / 100;
+                    this.current_index = Math.round(fraction * (this.index.length - 1));
+                    this.show();
+                }
+            });
+        }
 
         if (params.has('index')) {
             this.current_index = Number.parseInt(params.get('index'));
@@ -237,11 +293,21 @@ class HtmlView {
             }
         }
 
+        let groups_encountered = {};
         this.scenes.layers.forEach(layer => {
-            let opacity = (layer.name in this.layer_opacities) ? this.layer_opacities[layer.name] : 1.0;
-            this.lm.set_layer_opacity(layer.name, opacity);
-            let r = document.getElementById(layer.name+"_opacity");
-            r.value = String(100 * opacity);
+            let group = this.get_layer_group(layer.name);
+            this.layer_opacities[layer.name] = 1;
+            if (group && group in groups_encountered) {
+                // hide layers that are grouped if they are not the first layer in their group
+                this.lm.set_layer_opacity(layer.name, 0);
+            } else {
+                this.lm.set_layer_opacity(layer.name, 1);
+            }
+            if (group) {
+                groups_encountered[group] = true;
+            }
+            let r = document.getElementById(layer.name + "_opacity");
+            r.value = "100";
             r.addEventListener("input", this.create_opacity_callback(layer.name));
         });
 
@@ -295,29 +361,23 @@ class HtmlView {
             });
         }
 
-        this.close_all_btn.addEventListener("click", (evt) => {
-            this.scenes.layers.forEach(layer => {
-                this.layer_opacities[layer.name] = 0.0;
-                this.lm.set_layer_opacity(layer.name,0.0);
-                let r = document.getElementById(layer.name+"_opacity");
-                r.value = "0";
+        if (this.close_all_btn) {
+            this.close_all_btn.addEventListener("click", (evt) => {
+                this.scenes.layers.forEach(layer => {
+                    this.layer_opacities[layer.name] = 0.0;
+                    this.lm.set_layer_opacity(layer.name, 0.0);
+                    let r = document.getElementById(layer.name + "_opacity");
+                    r.value = "0";
+                });
             });
-        });
-
-        // work out whether to start in grid or overlay view
-        let view = "grid";
-        if (params.has('view')) {
-            view = params.get('view');
         }
 
-        if (view === 'overlay') {
-            grid_container.style.display = "none";
-            overlay_container.style.display = "block";
-        }
-
-        if (view === 'grid') {
-            grid_container.style.display = "block";
-            overlay_container.style.display = "none";
+        // by default open the grid container if it exists
+        if (this.grid_container) {
+            this.show_container(this.grid_container);
+        } else if (this.timeseries_container) {
+            // otherwise open the timeseries container
+            this.show_container(this.timeseries_container);
         }
 
         const make_hide_column_callback = (col_id) => {
@@ -326,10 +386,56 @@ class HtmlView {
             }
         }
 
+        const make_group_select_callback = (col_id) => {
+            return (evt) => {
+                document.getElementById(col_id).style.visibility = "collapse";
+                let layer_name = evt.target.value;
+                let target_group_select_id = layer_name+"_group_select";
+                let target_col_id = layer_name+"_col";
+                document.getElementById(target_col_id).style.visibility = "visible";
+                docuemnt.getElementById(target_group_select_id).value = layer_name;
+            }
+        }
+
+        const make_group_select_row_callback = () => {
+            return (evt) => {
+                let layer_name = evt.target.value;
+                let group_name = this.get_layer_group(layer_name);
+                if (group_name) {
+                    let grouped_layers = this.scenes.layer_groups[group_name];
+                    for (let idx=0; idx<grouped_layers.length; idx+=1) {
+                        let grouped_layer_name = grouped_layers[idx];
+                        let target_group_select_id = grouped_layer_name + "_group_select_row";
+                        let overlay_row_id = grouped_layer_name + "_overlay_row";
+                        if (grouped_layer_name === layer_name) {
+                            document.getElementById(overlay_row_id).style.display = "table-row";
+                            document.getElementById(overlay_row_id).value = layer_name;
+                            this.lm.set_layer_opacity(layer_name, this.layer_opacities[layer_name]);
+                        } else {
+                            document.getElementById(overlay_row_id).style.display = "none";
+                            this.lm.set_layer_opacity(grouped_layer_name, 0);
+                        }
+                    }
+                }
+            }
+        }
+
         this.scenes.layers.forEach(layer => {
             let col_id = layer.name + "_col";
             let hide_btn = layer.name + "_hide";
             document.getElementById(hide_btn).addEventListener("click", make_hide_column_callback(col_id));
+
+            let group_select_id = layer.name + "_group_select";
+            let group_select = document.getElementById(group_select_id);
+            if (group_select) {
+                group_select.addEventListener("input", make_group_select_callback(col_id));
+            }
+
+            let group_select_row_id = layer.name + "_group_select_row";
+            let group_select_row = document.getElementById(group_select_row_id);
+            if (group_select_row) {
+                group_select_row.addEventListener("input", make_group_select_row_callback());
+            }
         });
 
         if (this.download_labels_btn) {
@@ -347,7 +453,7 @@ class HtmlView {
 
         if (this.labels) {
             // get the label controls, and clear them
-            for(let label_group in this.labels.schema) {
+            for (let label_group in this.labels.schema) {
                 this.overlay_label_controls[label_group] = {};
                 for (let label_idx in this.labels.schema[label_group]) {
                     let label_value = this.labels.schema[label_group][label_idx];
@@ -361,7 +467,7 @@ class HtmlView {
                 this.grid_label_controls[label_group] = [];
                 for (let i = 0; i < this.labels.values[label_group].length; i++) {
                     let label_controls = {};
-                    for(let label_idx in this.labels.schema[label_group]) {
+                    for (let label_idx in this.labels.schema[label_group]) {
                         let label_value = this.labels.schema[label_group][label_idx];
                         let control = document.getElementById(this.get_label_control_id(label_group, label_value, i));
                         control.checked = false;
@@ -372,7 +478,7 @@ class HtmlView {
             }
 
             // set the values on the controls
-            for(let label_group in this.labels.values) {
+            for (let label_group in this.labels.values) {
                 let values = this.labels.values[label_group];
 
                 for (let i = 0; i < values.length; i++) {
@@ -388,34 +494,62 @@ class HtmlView {
             }
 
             // bind the label controls
-            for(let label_group in this.overlay_label_controls) {
-                for(let label in this.overlay_label_controls[label_group]) {
+            for (let label_group in this.overlay_label_controls) {
+                for (let label in this.overlay_label_controls[label_group]) {
                     this.overlay_label_controls[label_group][label].addEventListener("click",
                         this.create_overlay_label_control_callback(label_group, label));
                 }
                 let grid_controls = this.grid_label_controls[label_group];
-                for(let i=0; i<grid_controls.length; i++) {
+                for (let i = 0; i < grid_controls.length; i++) {
                     let controls = grid_controls[i];
-                    for(let label in controls) {
-                        controls[label].addEventListener("click",this.create_grid_label_control_callback(label_group, label, i));
+                    for (let label in controls) {
+                        controls[label].addEventListener("click", this.create_grid_label_control_callback(label_group, label, i));
                     }
                 }
             }
         }
 
-        for(let layer_idx in this.scenes.layers) {
+        for (let layer_idx in this.scenes.layers) {
             let layer = this.scenes.layers[layer_idx];
             if (layer.has_data) {
-                let min_control = document.getElementById(layer.name+"_min_input");
-                let max_control = document.getElementById(layer.name+"_max_input");
-                let select_control = document.getElementById(layer.name+"_camp_selector");
-                this.create_custom_cmap_callback(layer.name,select_control,min_control,max_control);
+                let min_control = document.getElementById(layer.name + "_min_input");
+                let max_control = document.getElementById(layer.name + "_max_input");
+                let select_control = document.getElementById(layer.name + "_camp_selector");
+                this.create_custom_cmap_callback(layer.name, select_control, min_control, max_control);
             }
         }
 
+        if (this.terrain_view_button) {
+            this.terrain_view_button.addEventListener("click", () => {
+                this.open_terrain_view();
+            });
+        }
+
+        if (this.exit_terrain_view_button) {
+            this.exit_terrain_view_button.addEventListener("click", () => {
+                this.close_terrain_view();
+            });
+        }
+
         this.update_filters();
-        this.update_time_range();
+        if (this.time_range) {
+            this.update_time_range();
+        }
         this.show();
+    }
+
+    show_container(target_container) {
+        let containers = [this.grid_container, this.timeseries_container, this.overlay_container, this.terrain_container];
+        containers.forEach(container => {
+            if (container && container !== target_container) {
+                container.style.display = "none";
+            }
+        });
+        containers.forEach(container => {
+            if (container && container === target_container) {
+                container.style.display = "block";
+            }
+        });
     }
 
     set_zoom(zoom) {
@@ -423,11 +557,11 @@ class HtmlView {
         this.zoom = zoom;
         this.scenes.layers.forEach(layer => {
             if (layer.wms_url) {
-                let wms_url = layer.wms_url.replace("{WIDTH}",""+this.zoom*image_width).replace("{HEIGHT}",""+this.zoom*image_width)
-                    .replace("{XMIN}",""+this.scenes.index[this.current_index].x_min)
-                    .replace("{YMIN}",""+this.scenes.index[this.current_index].y_min)
-                    .replace("{XMAX}",""+this.scenes.index[this.current_index].x_max)
-                    .replace("{YMAX}",""+this.scenes.index[this.current_index].y_max);
+                let wms_url = layer.wms_url.replace("{WIDTH}", "" + this.zoom * image_width).replace("{HEIGHT}", "" + this.zoom * image_width)
+                    .replace("{XMIN}", "" + this.scenes.index[this.current_index].x_min)
+                    .replace("{YMIN}", "" + this.scenes.index[this.current_index].y_min)
+                    .replace("{XMAX}", "" + this.scenes.index[this.current_index].x_max)
+                    .replace("{YMAX}", "" + this.scenes.index[this.current_index].y_max);
                 this.lm.add_image_layer(layer.name, wms_url);
             }
         });
@@ -475,7 +609,7 @@ class HtmlView {
         // create a callback for changes to an overlay view opacity slider
         return (evt) => {
             this.layer_opacities[layer_name] = Number.parseFloat(evt.target.value) / 100;
-            this.lm.set_layer_opacity(layer_name,this.layer_opacities[layer_name]);
+            this.lm.set_layer_opacity(layer_name, this.layer_opacities[layer_name]);
         }
     }
 
@@ -498,8 +632,8 @@ class HtmlView {
 
     update_data_layer(layer_name) {
         let dl = this.data_layers[layer_name];
-        let lurl = this.di.get_legend_url(dl.cmap,dl.vmin, dl.vmax,20,200);
-        let img_id = layer_name+"_legend_img";
+        let lurl = this.di.get_legend_url(dl.cmap, dl.vmin, dl.vmax, 20, 200);
+        let img_id = layer_name + "_legend_img";
         document.getElementById(img_id).src = lurl;
         this.update_image(layer_name);
     }
@@ -513,55 +647,54 @@ class HtmlView {
         } else {
             url = image_srcs[layer_name];
         }
-        this.lm.add_image_layer(layer_name,url);
+        this.lm.add_image_layer(layer_name, url);
     }
 
     show() {
         // called in the overlay view to show the currently selected scene
-        for (let idx = 0; idx < this.index.length; idx++) {
-            if (idx === this.current_index) {
-                let image_srcs = this.index[idx].image_srcs;
 
-                let label_specs = this.index[idx].label_specs;
+        let label_specs = this.index[this.current_index].label_specs;
 
-                for (let idx=this.scenes.layers.length-1; idx >= 0; idx=idx-1) {
-                    this.update_image(this.scenes.layers[idx].name);
-                }
-                let data_srcs = this.index[idx].data_srcs;
+        for (let idx = this.scenes.layers.length - 1; idx >= 0; idx = idx - 1) {
+            this.update_image(this.scenes.layers[idx].name);
+        }
+        let data_srcs = this.index[this.current_index].data_srcs;
 
-                this.di = new DataImage("viridis");
+        this.di = new DataImage("viridis");
 
-                for (let layer_name in data_srcs) {
-                    this.di.load(layer_name, data_srcs[layer_name]);
-                }
+        for (let layer_name in data_srcs) {
+            this.di.load(layer_name, data_srcs[layer_name]);
+        }
 
-                if (this.info_content) {
-                    let info = this.index[idx].info;
-                    this.populate_info(this.info_content, info);
-                }
+        if (this.info_content) {
+            let info = this.index[this.current_index].info;
+            this.populate_info(this.info_content, info);
+        }
 
-                if (this.labels) {
-                    let pos = this.index[idx].pos;
-                    for (let label_group in this.labels.values) {
-                        let label = this.labels.values[label_group][pos];
-                        if (label) {
-                            this.overlay_label_controls[label_group][label].checked = true;
-                        } else {
-                            // if there is no label value, uncheck all the controls
-                            for(let label_value in this.overlay_label_controls[label_group]) {
-                                this.overlay_label_controls[label_group][label_value].checked = false;
-                            }
-                        }
+        if (this.labels) {
+            let pos = this.index[this.current_index].pos;
+            for (let label_group in this.labels.values) {
+                let label = this.labels.values[label_group][pos];
+                if (label) {
+                    this.overlay_label_controls[label_group][label].checked = true;
+                } else {
+                    // if there is no label value, uncheck all the controls
+                    for (let label_value in this.overlay_label_controls[label_group]) {
+                        this.overlay_label_controls[label_group][label_value].checked = false;
                     }
                 }
             }
         }
 
-        let overlay_label = "0/0";
-        if (this.index.length) {
-            overlay_label = "(" + (this.current_index + 1) + "/" + this.index.length + ") " + this.index[this.current_index].timestamp;
+
+        if (this.scene_label_elt) {
+            let overlay_label = "0/0";
+            if (this.index.length) {
+                overlay_label = "(" + (this.current_index + 1) + "/" + this.index.length + ") " + this.index[this.current_index].timestamp;
+            }
+
+            this.scene_label_elt.innerHTML = overlay_label;
         }
-        this.scene_label_elt.innerHTML = overlay_label;
     }
 
     setup_drag(elt, header_elt, initial_top, initial_left) {
@@ -604,27 +737,45 @@ class HtmlView {
             document.onmousemove = null;
         }
     }
+
+    open_terrain_view() {
+        this.show_container(this.terrain_container);
+        let elevation_band = this.scenes["terrain_view"]["elevation_band"];
+        let image_layer = this.scenes["terrain_view"]["image_layer"];
+        let image_url = this.index[this.current_index].image_srcs[image_layer];
+        this.tv = new TerrainView(this.di, elevation_band, image_url);
+        this.tv.open();
+    }
+
+    close_terrain_view() {
+        this.tv.close();
+        this.tv = null;
+        this.show_container(this.overlay_container);
+    }
 }
 
 window.addEventListener("load", async (ect) => {
-   let hv = new HtmlView();
-   await hv.load();
-   hv.init();
-   hv.setup_drag(document.getElementById("layer_container"),document.getElementById("layer_container_header"), 400, 400);
-   let filter_container = document.getElementById("filter_container");
-   if (filter_container) {
-      hv.setup_drag(filter_container,document.getElementById("filter_container_header"), 100, 400);
-   }
-   let info_container = document.getElementById("info_container");
-   if (info_container) {
-       hv.setup_drag(info_container,document.getElementById("info_container_header"), 200, 400);
-   }
-   let labels_container = document.getElementById("labels_container");
-   if (labels_container) {
-       hv.setup_drag(labels_container,document.getElementById("labels_container_header"), 300, 400);
-   }
-   let data_container = document.getElementById("data_container");
-   if (data_container) {
-       hv.setup_drag(data_container,document.getElementById("data_container_header"), 400, 400);
-   }
+    let hv = new HtmlView();
+    await hv.load();
+    hv.init();
+    let layer_container = document.getElementById("layer_container");
+    if (layer_container) {
+        hv.setup_drag(layer_container, document.getElementById("layer_container_header"), 400, 400);
+    }
+    let filter_container = document.getElementById("filter_container");
+    if (filter_container) {
+        hv.setup_drag(filter_container, document.getElementById("filter_container_header"), 100, 400);
+    }
+    let info_container = document.getElementById("info_container");
+    if (info_container) {
+        hv.setup_drag(info_container, document.getElementById("info_container_header"), 200, 400);
+    }
+    let labels_container = document.getElementById("labels_container");
+    if (labels_container) {
+        hv.setup_drag(labels_container, document.getElementById("labels_container_header"), 300, 400);
+    }
+    let data_container = document.getElementById("data_container");
+    if (data_container) {
+        hv.setup_drag(data_container, document.getElementById("data_container_header"), 400, 400);
+    }
 });

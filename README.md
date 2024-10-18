@@ -57,11 +57,11 @@ This [commented example configuration file](test/example_layers.json5) should ex
 
 ### other command line options
 
-| option                     | description                           | example                              |
-|----------------------------|---------------------------------------|--------------------------------------|
- | --sample-count             | limit the number of cases to display  | --sample-count 100                   |
- | --sample-cases             | specify which cases to display        | --sample-cases 4 10 12               |
- | --netcdf-download-filename | provide a link to download the data in the generated html  | --netcdf-download-filename area97.nc | 
+| option          | description                                                | example                   |
+|-----------------|------------------------------------------------------------|---------------------------|
+ | --sample-count  | limit the number of cases to display                       | --sample-count 100        |
+ | --sample-cases  | specify which cases to display                             | --sample-cases 4 10 12    |
+ | --download-data | provide a link to download this data in the generated html | --download-data area97.nc | 
 
 
 ## bigplot

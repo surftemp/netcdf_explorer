@@ -37,11 +37,11 @@ class Test(unittest.TestCase):
         with open(layers_path) as f:
             config = json.loads(strip_json5_comments(f.read()))
         gen = HTMLGenerator(config=config, input_ds=ds, output_folder=output_folder, title="area 293", sample_count=None, sample_cases=None,
-            netcdf_download_filename="area_293_min.nc", filter_controls=False)
+            download_from=path, filter_controls=False)
         gen.run()
 
     def test_293_commandline(self):
-        cli_test = 'python -m netcdf_explorer.cli.generate_html --input-path area_293_min.nc --title "area_293" --output-folder area_293_output_cli --config-path example_layers.json5'
+        cli_test = 'python -m netcdf_explorer.cli.generate_html --input-path area_293_min.nc --title "area_293" --output-folder area_293_output_cli --config-path example_layers.json5 --download-data area_293_min.nc'
         os.system(f'(cd {os.path.split(__file__)[0]}; {cli_test})')
 
     def test_bigplot(self):

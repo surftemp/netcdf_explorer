@@ -80,3 +80,14 @@ input[type=number] {
 #map {
     position: absolute; top: 80px; bottom: 0px; left: 0px; right: 0px;
 }
+
+.timeseries_chart {
+    width: 100%;
+    height: 200px;
+}
+
+#render_canvas {
+    width: 80%;
+    height: 80%;
+    touch-action: none;
+}

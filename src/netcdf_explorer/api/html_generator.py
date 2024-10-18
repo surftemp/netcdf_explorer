@@ -19,6 +19,7 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
+
 import csv
 import datetime
 import os
@@ -36,7 +37,8 @@ import copy
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-from .layers import LayerFactory, LayerSingleBand, LayerWMS, LayerMask
+from .layers import LayerFactory, LayerSingleBand, LayerWMS, LayerMask, LayerGroup
+from .expr_parser import ExpressionParser
 
 from netcdf_explorer.htmlfive.html5_builder import Html5Builder, ElementFragment
 
@@ -44,12 +46,24 @@ from netcdf_explorer.fragments.utils import anti_aliasing_style
 from netcdf_explorer.fragments.image import ImageFragment
 from netcdf_explorer.fragments.table import TableFragment
 from netcdf_explorer.fragments.legend import LegendFragment
+from netcdf_explorer.fragments.select import SelectFragment
 
-js_paths = [os.path.join(os.path.split(__file__)[0], "cmap.js"),
-            os.path.join(os.path.split(__file__)[0], "data_image.js"),
-            os.path.join(os.path.split(__file__)[0], "leaflet_map.js"),
-            os.path.join(os.path.split(__file__)[0], "html_view.js")]
-css_path = os.path.join(os.path.split(__file__)[0], "index.css")
+src_folder = os.path.split(__file__)[0]
+
+js_paths = [os.path.join(src_folder, "cmap.js"),
+            os.path.join(src_folder, "data_image.js"),
+            os.path.join(src_folder, "leaflet_map.js"),
+            os.path.join(src_folder, "timeseries_chart.js"),
+            os.path.join(src_folder, "terrain_view.js"),
+            os.path.join(src_folder, "html_view.js")]
+
+css_path = os.path.join(src_folder, "index.css")
+
+dygraph_dependency_paths = [os.path.join(src_folder,"..","dependencies","dygraph.css"),
+                    os.path.join(src_folder,"..","dependencies","dygraph.js")]
+
+babylonjs_dependency_paths = [os.path.join(src_folder,"..","dependencies","babylon.js"),
+                    os.path.join(src_folder,"..","dependencies","babylonTerrain.js")]
 
 class Progress(object):
 
@@ -96,17 +110,17 @@ def strip_json5_comments(original):
 class HTMLGenerator:
 
     def __init__(self, config, input_ds, output_folder, title, sample_count=None, sample_cases=None,
-                 netcdf_download_filename="", filter_controls=False):
+                 download_from=None, filter_controls=False):
 
         dimensions = config.get("dimensions", {})
         coordinates = config.get("coordinates", {})
         image = config.get("image", {})
 
-        self.case_dimension = dimensions.get("case", "time")
-        self.x_dimension = dimensions.get("x", "x")
-        self.y_dimension = dimensions.get("y", "y")
-        self.x_coordinate = coordinates.get("x", "x")
-        self.y_coordinate = coordinates.get("y", "y")
+        self.case_dimension = dimensions.get("case", "")
+        self.x_dimension = dimensions.get("x", "")
+        self.y_dimension = dimensions.get("y", "")
+        self.x_coordinate = coordinates.get("x", "")
+        self.y_coordinate = coordinates.get("y", "")
         self.time_coordinate = coordinates.get("time", "")
         self.input_ds = input_ds
         self.output_folder = output_folder
@@ -115,15 +129,26 @@ class HTMLGenerator:
         self.sample_cases = sample_cases
         self.max_zoom = image.get("max-zoom", None)
         self.grid_image_width = image.get("grid-width", None)
-        self.netcdf_download_filename = netcdf_download_filename
+        self.netcdf_download_filename = os.path.split(download_from)[-1] if download_from else ""
         self.output_html_path = os.path.join(output_folder, "index.html")
         self.filter_controls = filter_controls
         self.info = config.get("info",{})
         self.crs = config.get("crs",None)
         self.labels = config.get("labels",None)
         self.logger = logging.getLogger("generate_html")
-        self.group = config.get("group",None)
         self.timeseries = config.get("timeseries",{})
+        self.derive_bands = config.get("derive_bands",{})
+        self.terrain_view = config.get("terrain_view",{})
+
+        self.parser = ExpressionParser()
+        self.parser.add_unary_operator("not")
+        self.parser.add_binary_operator("|", 3)
+        self.parser.add_binary_operator("&", 3)
+        self.parser.add_binary_operator("==",2)
+        self.parser.add_binary_operator("and",1)
+        self.parser.add_binary_operator("or",1)
+
+        self.build_derived_bands()
 
         image_folder = os.path.join(self.output_folder, "images")
         os.makedirs(image_folder, exist_ok=True)
@@ -143,18 +168,50 @@ class HTMLGenerator:
             f.write(js_code)
 
         shutil.copyfile(css_path, os.path.join(self.output_folder, "index.css"))
+        if download_from:
+            shutil.copyfile(download_from, os.path.join(self.output_folder, self.netcdf_download_filename))
+
+        # copy in dependencies
+        dependency_folder = os.path.join(self.output_folder, "dependencies")
+        os.makedirs(dependency_folder, exist_ok=True)
+
+        if self.timeseries:
+            for dependency_path in dygraph_dependency_paths:
+                filename = os.path.split(dependency_path)[-1]
+                shutil.copyfile(dependency_path,os.path.join(dependency_folder, filename))
+
+        if self.terrain_view:
+            for dependency_path in babylonjs_dependency_paths:
+                filename = os.path.split(dependency_path)[-1]
+                shutil.copyfile(dependency_path,os.path.join(dependency_folder, filename))
+
         self.layer_definitions = []
 
         self.layer_images = []
         self.layer_data = []
         self.layer_legends = {}
 
-        self.input_ds = self.reduce_coordinate_dimension(self.input_ds, self.x_coordinate, self.case_dimension)
-        self.input_ds = self.reduce_coordinate_dimension(self.input_ds, self.y_coordinate, self.case_dimension)
+        self.timeseries_definitions = []
 
-        for (layer_name, layer_spec) in config["layers"].items():
-            layer = LayerFactory.create(self, layer_name, layer_spec)
-            self.layer_definitions.append(layer)
+        if self.x_coordinate:
+            self.input_ds = self.reduce_coordinate_dimension(self.input_ds, self.x_coordinate, self.case_dimension)
+        if self.y_coordinate:
+            self.input_ds = self.reduce_coordinate_dimension(self.input_ds, self.y_coordinate, self.case_dimension)
+
+        if "layers" in config:
+            for (layer_name, layer_spec) in config["layers"].items():
+                layer = LayerFactory.create(self, layer_name, layer_spec)
+                self.layer_definitions.append(layer)
+
+        if "timeseries" in config:
+            for (timeseries_name, timeseries_spec) in config["timeseries"]["plots"].items():
+                valid_variables = []
+                for variable in timeseries_spec["variables"]:
+                    if variable in self.input_ds:
+                        valid_variables.append(variable)
+                if valid_variables:
+                    timeseries_spec["variables"] = valid_variables
+                    self.timeseries_definitions.append((timeseries_name, timeseries_spec, {}))
 
         self.all_cmaps = sorted(["Purples", "gist_rainbow", "gist_ncar", "Blues", "Greys", "autumn", "gist_gray", "magma", "Set3",
                      "cool", "tab20c", "GnBu", "brg", "cividis", "Pastel1", "YlOrRd", "Spectral", "gist_earth", "PuBu",
@@ -170,6 +227,54 @@ class HTMLGenerator:
             source_path = os.path.join(os.path.abspath(os.path.split(__file__)[0]),"..","misc","cmaps", cmap+".json")
             dest_path = os.path.join(cmap_folder, cmap + ".json")
             shutil.copyfile(source_path, dest_path)
+
+    def flatten_layers(self, layer_definitions):
+        flattened_layers = []
+        for layer in layer_definitions:
+            if layer.get_sublayers() is not None:
+                flattened_layers += layer.get_sublayers()
+            else:
+                flattened_layers.append(layer)
+        return flattened_layers
+
+    def build_derived_bands(self):
+        for (mask_name, mask_expression) in self.derive_bands.items():
+            from_bands = []
+            parsed_expression = self.parser.parse(mask_expression)
+            arr = self.evaluate_expression(parsed_expression, from_bands)
+            dims = []
+            for band in from_bands:
+                if len(self.input_ds[band].dims) > len(dims):
+                    dims = self.input_ds[band].dims
+            print(json.dumps(parsed_expression))
+            self.input_ds[mask_name] = xr.DataArray(arr,dims=dims)
+
+    def evaluate_expression(self, parsed_expression, from_bands_accumulator):
+        if "name" in parsed_expression:
+            from_bands_accumulator.append(parsed_expression["name"])
+            return self.input_ds[parsed_expression["name"]].data
+        elif "operator" in parsed_expression:
+            operator = parsed_expression["operator"]
+            args = parsed_expression["args"]
+            arrays = []
+            for arg in args:
+                arrays.append(self.evaluate_expression(arg,from_bands_accumulator))
+            if operator == "==":
+                assert len(args) == 2
+                return np.equal(arrays[0],arrays[1])
+            elif operator == "&":
+                assert len(args) == 2
+                return np.bitwise_and(np.astype(arrays[0],int),np.astype(arrays[1],int))
+            elif operator == "|":
+                assert len(args) == 2
+                return np.bitwise_or(np.astype(arrays[0],int), np.astype(arrays[1],int))
+            elif operator == "not":
+                assert(len(args) == 1)
+                return np.logical_not(arrays[0])
+            else:
+                raise Exception(f"Unknown operator: {operator}")
+        elif "literal" in parsed_expression:
+            return np.array([parsed_expression["literal"]])
 
     def reduce_coordinate_dimension(self, ds, coordinate_name, case_dimension):
         dims = ds[coordinate_name].dims
@@ -292,105 +397,141 @@ class HTMLGenerator:
 
     def run(self):
         cases = []
-        image_width, image_height = self.get_image_dimensions(self.input_ds)
-        n = len(self.input_ds[self.case_dimension])
-
-        p = Progress("Reading data")
-        for i in range(n):
-            p.report("", i/n)
-            timestamp = str(self.input_ds[self.time_coordinate].data[i])[:10] if self.time_coordinate else None
-            cases.append((i, timestamp, self.input_ds.isel(**{self.case_dimension: i})))
-            if self.time_coordinate:
-                cases = sorted(cases, key=lambda t: t[1])
-        p.complete("Done")
-
-        # check the layers, removing any that fail
-        remove_layers = []
-        for layer_definition in self.layer_definitions:
-            err = layer_definition.check(self.input_ds)
-            if err:
-                self.logger.error(f"Unable to add layer {layer_definition.layer_name}: {err}")
-                remove_layers.append(layer_definition)
-
-        for layer_definition in remove_layers:
-            self.layer_definitions.remove(layer_definition)
-
-        # build the legends
-        for layer_definition in self.layer_definitions:
-            if layer_definition.has_legend():
-                legend_src, legend_path = self.get_image_path(layer_definition.layer_name + "_legend")
-                layer_definition.build_legend(legend_path)
-                self.layer_legends[layer_definition.layer_name] = legend_src
-
-        # build the images and data
+        image_width = None
+        image_height = None
         label_values = None
-        if self.labels:
-            label_values = { "case_dimension": self.case_dimension, "values": {}, "schema": copy.deepcopy(self.labels)}
-            if self.netcdf_download_filename:
-                label_values["netcdf_filename"] = self.netcdf_download_filename
 
-        p = Progress("Building images")
-        for (index, timestamp, ds) in cases:
-            p.report("",index/n)
-            image_srcs = {}
-            data_srcs = {}
+        if self.layer_definitions:
+            image_width, image_height = self.get_image_dimensions(self.input_ds)
 
+            n = len(self.input_ds[self.case_dimension])
+
+            p = Progress("Reading data")
+            for i in range(n):
+                p.report("", i/n)
+                timestamp = str(self.input_ds[self.time_coordinate].data[i])[:10] if self.time_coordinate else None
+                cases.append((i, timestamp, self.input_ds.isel(**{self.case_dimension: i})))
+                if self.time_coordinate:
+                    cases = sorted(cases, key=lambda t: t[1])
+            p.complete("Done")
+
+            # check the layers, removing any that fail
+            remove_layers = []
             for layer_definition in self.layer_definitions:
-                (src, path) = self.get_image_path(layer_definition.layer_name, index=index)
-                layer_definition.build(ds, path)
-                image_srcs[layer_definition.layer_name] = src
-                if layer_definition.save_data():
-                    (data_src, data_path) = self.get_data_path(layer_definition.layer_name, index)
-                    data_options = layer_definition.build_data(ds, data_path)
-                    data_srcs[layer_definition.layer_name] = {"url":data_src, "options":data_options}
+                err = layer_definition.check(self.input_ds)
+                if err:
+                    self.logger.error(f"Unable to add layer {layer_definition.layer_name}: {err}")
+                    remove_layers.append(layer_definition)
 
+            for layer_definition in remove_layers:
+                self.layer_definitions.remove(layer_definition)
+
+            # build the legends
+            for layer_definition in self.flatten_layers(self.layer_definitions):
+                if layer_definition.has_legend():
+                    legend_src, legend_path = self.get_image_path(layer_definition.layer_name + "_legend")
+                    layer_definition.build_legend(legend_path)
+                    self.layer_legends[layer_definition.layer_name] = legend_src
+
+            # build the images and data
+            label_values = None
             if self.labels:
-                for label_group in self.labels:
-                    if label_group not in label_values["values"]:
-                        label_values["values"][label_group] = []
-                    if label_group in ds:
-                        label_values["values"][label_group].append(ds[label_group].item())
+                label_values = { "case_dimension": self.case_dimension, "values": {}, "schema": copy.deepcopy(self.labels)}
+                if self.netcdf_download_filename:
+                    label_values["netcdf_filename"] = self.netcdf_download_filename
+
+            p = Progress("Building images")
+            for (index, timestamp, ds) in cases:
+                p.report("",index/n)
+                image_srcs = {}
+                data_srcs = {}
+
+                for layer_definition in self.flatten_layers(self.layer_definitions):
+                    (src, path) = self.get_image_path(layer_definition.layer_name, index=index)
+                    layer_definition.build(ds, path)
+                    image_srcs[layer_definition.layer_name] = src
+                    if layer_definition.save_data():
+                        (data_src, data_path) = self.get_data_path(layer_definition.layer_name, index)
+                        data_options = layer_definition.build_data(ds, data_path)
+                        data_srcs[layer_definition.layer_name] = {"url":data_src, "options":data_options}
+
+                if self.labels:
+                    for label_group in self.labels:
+                        if label_group not in label_values["values"]:
+                            label_values["values"][label_group] = []
+                        if label_group in ds:
+                            label_values["values"][label_group].append(ds[label_group].item())
+                        else:
+                            label_values["values"][label_group].append(None)
+
+
+                self.layer_images.append((index, timestamp, image_srcs, data_srcs, ds))
+
+            p.complete("Done")
+
+        # build timeseries if any are defined
+        if self.timeseries_definitions:
+
+            folder = os.path.join(self.output_folder, "timeseries")
+            os.makedirs(folder, exist_ok=True)
+            for (timeseries_name, timeseries_spec, timeseries_detail) in self.timeseries_definitions:
+                csv_path = os.path.join(folder, timeseries_name + ".csv")
+                source_masks = timeseries_spec.get("masks", [])
+                variables = timeseries_spec["variables"]
+                with open(csv_path,"w") as f:
+                    writer = csv.writer(f)
+                    headers = ["datetime"]
+                    if source_masks:
+                        for source_mask in source_masks:
+                            for variable in variables:
+                                headers.append(f"{source_mask}_{variable.replace(':','_')}")
                     else:
-                        label_values["values"][label_group].append(None)
+                        headers == variables
 
+                    writer.writerow(headers)
+                    n = len(self.input_ds[self.time_coordinate])
 
-            self.layer_images.append((index, timestamp, image_srcs, data_srcs, ds))
+                    for i in range(n):
+                        timestamp = str(self.input_ds[self.time_coordinate].data[i])[
+                                    :10] if self.time_coordinate else None
 
-        p.complete("Done")
+                        data_slice = self.input_ds[variable].isel(**{self.case_dimension:i})
 
-        # build timeseries if there is a time coordinate and case dimension
-        timeseries = {}
+                        dt = datetime.datetime.strptime(timestamp, "%Y-%m-%d")
+                        row = [dt.strftime("%Y-%m-%d")]
 
-        if self.time_coordinate:
-            timeseries_data_bands = self.timeseries.get("bands",[])
-            timeseries_mask_bands = self.timeseries.get("masks", [])
-            if timeseries_data_bands and timeseries_mask_bands:
-                ts = 0
-                p = Progress("Building timeseries")
-                for timeseries_band in timeseries_data_bands:
-                    data = {"time":[], "mean":[], "area":[], "year":[], "day":[] }
-                    folder = os.path.join(self.output_folder, "timeseries")
-                    os.makedirs(folder,exist_ok=True)
-                    csv_path = os.path.join(folder, timeseries_band + ".csv")
-                    with open(csv_path,"w") as f:
-                        writer = csv.writer(f)
-                        writer.writerow(["datetime"]+timeseries_mask_bands)
-                        for (index, timestamp, ds) in cases:
-                            p.report(timeseries_band,(index+ts*n)/(len(timeseries_data_bands)*n))
-                            row = [timestamp]
-                            for mask_band in timeseries_mask_bands:
-                                dt = datetime.datetime.strptime(timestamp, "%Y-%m-%d")
-                                data["time"].append(dt)
-                                data["year"].append(str(dt.year))
-                                data["day"].append(dt.timetuple()[7])
-                                data["area"].append(mask_band)
-                                value = xr.where(self.input_ds[mask_band] == 1, ds[timeseries_band], np.nan).mean(skipna=True).item()
-                                data["mean"].append(value)
+                        if source_masks:
+                            # build a timseries for each combination of mask and variable
+                            for source_mask in source_masks:
+                                mask_slice = self.input_ds[source_mask].squeeze()
+                                if self.case_dimension in mask_slice.dims:
+                                    mask_slice = mask_slice.isel(**{self.case_dimension:i})
+
+                                for variable in variables:
+                                    variable_components = variable.split(":")
+                                    variable_name = variable_components[0]
+                                    if len(variable_components)==2:
+                                        aggregation_fn = variable_components[1]
+                                    else:
+                                        aggregation_fn = "mean"
+                                    values = xr.where(mask_slice, data_slice, np.nan)
+                                    if aggregation_fn == "mean":
+                                        value = values.mean(skipna=True).item()
+                                    elif aggregation_fn == "min":
+                                        value = values.min(skipna=True).item()
+                                    elif aggregation_fn == "max":
+                                        value = values.max(skipna=True).item()
+                                    else:
+                                        raise Exception(f"Cannot apply unrecognised aggregation function {aggregation_fn}")
+                                    row.append(str(value))
+                        else:
+                            for variable in timeseries_spec["variables"]:
+                                value = data_slice.item()
                                 row.append(str(value))
-                            writer.writerow(row)
-                            timeseries[timeseries_band] = pd.DataFrame(data)
-                    ts += 1
-                p.complete("Done")
+
+                        writer.writerow(row)
+
+                timeseries_detail["csv_url"] = os.path.join("timeseries", timeseries_name + ".csv")
 
         builder = Html5Builder(language="en")
 
@@ -404,26 +545,56 @@ class HTMLGenerator:
                                               "integrity":"sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=",
                                               "crossorigin":""})
 
+        # dygraphs
+        if self.timeseries:
+            builder.head().add_element("script", {"type": "text/javascript", "src":"dependencies/dygraph.js"})
+            builder.head().add_element("link", {"type": "text/css", "rel":"stylesheet", "href": "dependencies/dygraph.css"})
+
+        # babylonJS
+        if self.terrain_view:
+            builder.head().add_element("script", {"type": "text/javascript", "src": "dependencies/babylon.js"})
+            builder.head().add_element("script", {"type": "text/javascript", "src": "dependencies/babylonTerrain.js"})
+
         root = builder.body().add_element("div")
 
         container_div = root.add_element("div")
-        overlay_container_div = container_div.add_element("div", {"id": "overlay_container", "style": "display:none;"})
-        grid_container_div = container_div.add_element("div", {"id": "grid_container", "style": "display:none;"})
-        timeseries_container_div = container_div.add_element("div", {"id": "timeseries_container", "style": "display:none;"})
 
-        display_timeseries = len(timeseries) > 0
-        self.build_overlay_view(overlay_container_div, builder, image_width, image_height)
-        self.build_grid_view(grid_container_div, builder, image_width, image_height, display_timeseries=display_timeseries)
+        display_timeseries = len(self.timeseries_definitions) > 0
+        if self.layer_definitions:
+            overlay_container_div = container_div.add_element("div",
+                                                              {"id": "overlay_container", "style": "display:none;"})
+            grid_container_div = container_div.add_element("div", {"id": "grid_container", "style": "display:none;"})
+            self.build_overlay_view(overlay_container_div, builder, image_width, image_height)
+            self.build_grid_view(grid_container_div, builder, image_width, image_height, display_timeseries=display_timeseries)
+
         if display_timeseries:
-            self.build_timeseries_view(timeseries_container_div, builder, timeseries, timeseries_mask_bands)
+            timeseries_container_div = container_div.add_element("div", {"id": "timeseries_container",
+                                                                         "style": "display:none;"})
 
-        scenes = { "layers":[], "index": [] }
+            self.build_timeseries_view(timeseries_container_div, builder)
 
-        for layer_definition in self.layer_definitions:
+        if self.terrain_view:
+            terrain_container_div = container_div.add_element("div", {"id": "terrain_container", "style":"display:none;"})
+            self.build_terrain_view(terrain_container_div, builder)
+
+        scenes = { "layers":[], "index": [], "layer_groups":{} }
+
+        if self.terrain_view:
+            scenes["terrain_view"] = self.terrain_view
+
+        for layer_definition in self.flatten_layers(self.layer_definitions):
             layer_dict = {"name": layer_definition.layer_name, "label": layer_definition.layer_label, "has_data": layer_definition.save_data()}
             if isinstance(layer_definition,LayerWMS):
                 layer_dict["wms_url"] = layer_definition.wms_url
             scenes["layers"].insert(0, layer_dict)
+
+        for layer_definition in self.flatten_layers(self.layer_definitions):
+            group = layer_definition.get_group()
+            if group:
+                group_layer_name = group.layer_name
+                if group_layer_name not in scenes["layer_groups"]:
+                    scenes["layer_groups"][group_layer_name] = []
+                scenes["layer_groups"][group_layer_name].append(layer_definition.layer_name)
 
         for (index, timestamp, layer_sources, data_sources, ds) in self.layer_images:
 
@@ -433,7 +604,7 @@ class HTMLGenerator:
 
             scene_dict = {"timestamp": timestamp if timestamp is not None else "", "image_srcs": layer_sources,
                                "data_srcs": data_sources, "info": info, "pos":index}
-            for layer_definition in self.layer_definitions:
+            for layer_definition in self.flatten_layers(self.layer_definitions):
                 if isinstance(layer_definition, LayerWMS):
                     ((x_min, y_min), (x_max, y_max)) = layer_definition.get_bounds(ds)
                     scene_dict["x_min"] = x_min
@@ -446,14 +617,24 @@ class HTMLGenerator:
         with open(os.path.join(self.output_folder, "scenes.json"), "w") as f:
             f.write(json.dumps(scenes,indent=4))
 
-        builder.head().add_element("script").add_text("let image_width=" + json.dumps(image_width) + ";")
+        if image_width:
+            builder.head().add_element("script").add_text("let image_width=" + json.dumps(image_width) + ";")
+
+        if self.timeseries_definitions:
+            timeseries = []
+            for (timeseries_name, timeseries_spec, timeseries_detail) in self.timeseries_definitions:
+                timeseries.append({
+                    "name": timeseries_name,
+                    "spec": timeseries_spec,
+                    "csv_url": timeseries_detail["csv_url"],
+                    "div_id": timeseries_detail["div_id"]
+                })
+            with open(os.path.join(self.output_folder, "timeseries.json"), "w") as f:
+                f.write(json.dumps(timeseries, indent=4))
 
         self.logger.info(f"writing {self.output_html_path}")
         with open(self.output_html_path, "w") as f:
             f.write(builder.get_html())
-
-        if self.netcdf_download_filename:
-            self.input_ds.to_netcdf(os.path.join(self.output_folder, self.netcdf_download_filename))
 
         if label_values:
             with open(os.path.join(self.output_folder, "labels.json"),"w") as f:
@@ -480,59 +661,85 @@ class HTMLGenerator:
 
         tf = TableFragment()
 
+        columns_hidden = [False]
         column_ids = ["index_col"]
+
         if self.info:
             column_ids += ["info"]
+            columns_hidden += [False]
+
         if self.labels:
             column_ids += ["labels"]
+            columns_hidden += [False]
 
-        for layer_definition in self.layer_definitions[::-1]:
+        groups = set()
+
+        for layer_definition in self.flatten_layers(self.layer_definitions)[::-1]:
+            group = layer_definition.get_group()
             columm_id = layer_definition.layer_name + "_col"
             column_ids.append(columm_id)
-        tf.set_column_ids(column_ids)
+            if group and group in groups:
+                columns_hidden.append(True) # this column is one of a group and not the first, hide it initially
+            else:
+                columns_hidden.append(False)
+            if group:
+                groups.add(group)
+
+        tf.set_column_ids(column_ids, columns_hidden)
 
         header_cells = ["Index"]
         if self.info:
             header_cells.append("Info")
         if self.labels:
             header_cells.append("Labels")
-        for layer_definition in self.layer_definitions[::-1]:
+        for layer_definition in self.flatten_layers(self.layer_definitions)[::-1]:
+            label = layer_definition.layer_label
+            group = layer_definition.get_group()
+            if group:
+                label = group.layer_label
             if layer_definition.layer_name in self.layer_legends:
                 img = ImageFragment(self.layer_legends[layer_definition.layer_name],
                                     layer_definition.layer_name + "_grid_legend", alt_text="legend",
                                     w=self.grid_image_width if self.grid_image_width else image_width)
                 vmin = getattr(layer_definition, "vmin", None)
                 vmax = getattr(layer_definition, "vmax", None)
-                header_cells.append(LegendFragment(layer_definition.layer_label, img, vmin, vmax))
+                header_cells.append(LegendFragment(label, img, vmin, vmax))
             else:
-                header_cells.append(layer_definition.layer_label)
+                header_cells.append(label)
         tf.add_header_row(header_cells)
 
+        group_selector_cells = [""]
         button_cells = [""]
         if self.info:
             button_cells.append("")
+            group_selector_cells.append("")
         if self.labels:
             button_cells.append(self.generate_label_buttons())
+            group_selector_cells.append("")
 
-        for layer_definition in self.layer_definitions[::-1]:
+        for layer_definition in self.flatten_layers(self.layer_definitions)[::-1]:
+            group = layer_definition.get_group()
+            if group:
+                sf = SelectFragment({"id": layer_definition.layer_name + "_group_select"})
+                for layer in group.get_layers():
+                    sf.add_option(layer.layer_name, layer.layer_label, is_selected=(layer.layer_name==layer_definition.layer_name))
+                group_selector_cells.append(sf)
+            else:
+                group_selector_cells.append("")
             button_cells.append(
                 ElementFragment("button", {"id": layer_definition.layer_name + "_hide"}).add_text("Hide"))
-        tf.add_row(button_cells)
+
+        tf.add_header_row(button_cells)
+        tf.add_header_row(group_selector_cells)
 
         current_group_label = ""
         for (index, timestamp, layer_sources, _, ds) in self.layer_images:
-            if self.group:
-                template = Template(self.group)
-                group_label = template.render(**{"data":ds})
-                if group_label != current_group_label:
-                    tf.add_row(group_label)
-                current_group_label = group_label
             cells = [self.generate_index_cell(index)]
             if self.info:
                 cells += [self.generate_info_table(index,ds)]
             if self.labels:
                 cells += [self.generate_label_controls(index)]
-            for layer_definition in self.layer_definitions[::-1]:
+            for layer_definition in self.flatten_layers(self.layer_definitions)[::-1]:
                 src = layer_sources[layer_definition.layer_name]
                 img = ImageFragment(src, layer_definition.layer_name + "_grid_" + str(index), alt_text=timestamp,
                                     w=self.grid_image_width if self.grid_image_width else image_width)
@@ -556,7 +763,7 @@ class HTMLGenerator:
                 "download netcdf4")
 
         has_data = False
-        for layer_definition in self.layer_definitions:
+        for layer_definition in self.flatten_layers(self.layer_definitions):
             if layer_definition.has_legend():
                 if isinstance(layer_definition,LayerSingleBand) and layer_definition.save_data():
                     has_data = True
@@ -569,6 +776,10 @@ class HTMLGenerator:
         overlay_container_div.add_element("span", {"id": "scene_label"}).add_text("?")
 
         overlay_container_div.add_element("span", {"class": "spacer"}).add_text("|")
+
+        if self.terrain_view:
+            overlay_container_div.add_element("button", {"id": "terrain_view_btn"}).add_text("Terrain View")
+            overlay_container_div.add_element("span", {"class": "spacer"}).add_text("|")
 
         overlay_container_div.add_element("input",
                                           {"type": "checkbox", "id": "show_layers", "checked": "checked"}).add_text(
@@ -604,16 +815,34 @@ class HTMLGenerator:
         slider_table = slider_container.add_element("table", {"id": "slider_controls"})
         slider_container.add_element("input", {"type": "button", "id": "close_all_sliders", "value": "Hide All Layers"})
 
+        groups = set()
+        for layer_definition in self.flatten_layers(self.layer_definitions):
 
-        for layer_definition in self.layer_definitions:
-            row = slider_table.add_element("tr")
+            group = layer_definition.get_group()
+            style = {}
+            if group and group in groups:
+                style["display"] = "none"
+            if group:
+                groups.add(group)
+
+            row = slider_table.add_element("tr", attrs={"id":layer_definition.layer_name+"_overlay_row"},style=style)
             col1 = row.add_element("td")
             col2 = row.add_element("td")
             col3 = row.add_element("td")
             col4 = row.add_element("td")
             col5 = row.add_element("td")
             col6 = row.add_element("td")
-            col1.add_text(layer_definition.layer_label)
+
+            if group:
+                col1.add_text(group.layer_label)
+                sf = SelectFragment({"id": layer_definition.layer_name + "_group_select_row"})
+                for layer in group.get_layers():
+                    sf.add_option(layer.layer_name, layer.layer_label,
+                                  is_selected=(layer.layer_name == layer_definition.layer_name))
+                col1.add_fragment(sf)
+            else:
+                col1.add_text(layer_definition.layer_label)
+
             opacity_control_id = layer_definition.layer_name + "_opacity"
             col2.add_element("input", {"type": "range", "id": opacity_control_id})
 
@@ -638,7 +867,6 @@ class HTMLGenerator:
                         if cmap == layer_definition.get_cmap():
                             option_attrs["selected"] = "selected"
                         cmap_selector.add_element("option",option_attrs).add_text(cmap)
-
 
         if self.filter_controls:
             filter_div = overlay_container_div.add_element("div", {"id": "filter_container", "class": "control_container"})
@@ -686,46 +914,24 @@ class HTMLGenerator:
         overlay_container_div.add_element("div",{"id":"map"})
 
 
+    def build_timeseries_view(self, timeseries_container_div, builder):
+        if self.layer_definitions:
+            timeseries_container_div.add_element("input", {"type": "button", "id": "grid_view_btn2", "value": "Show Grid View"})
 
-    def build_timeseries_view(self, timeseries_container_div, builder, timeseries, mask_bands):
-        timeseries_container_div.add_element("input", {"type": "button", "id": "grid_view_btn2", "value": "Show Grid View"})
         timeseries_container_div.add_element("span").add_text(self.title)
 
         timeseries_container_div.add_element("h2").add_text("timeseries")
-        sns.set_theme()
-        dpi = 100
-        for band in timeseries:
-            width = self.timeseries.get("plot-width",12)
-            height = self.timeseries.get("plot-height",4)
-            plt.figure(figsize=(width,height),dpi=dpi)
-            folder = os.path.join(self.output_folder, "timeseries")
-            os.makedirs(folder,exist_ok=True)
-            image_path = os.path.join(folder, band + ".png")
-            plot = sns.lineplot(x="time",y="mean",hue="area", data=timeseries[band],marker="o")
-            plot.get_figure().tight_layout()
-            plot.get_figure().savefig(image_path,dpi=dpi)
-            timeseries_container_div.add_element("h3").add_text(band)
-            timeseries_container_div.add_element("img",{"src":f"timeseries/{band}.png"})
 
-        idx = 0
-        n = len(timeseries)*len(mask_bands)
-        p = Progress("Plotting timeseries")
-        timeseries_container_div.add_element("h2").add_text("seasonal")
-        for band in timeseries:
-            for mask in mask_bands:
-                p.report("",idx/n)
-                width = self.timeseries.get("seasonal-plot-width",4)
-                height = self.timeseries.get("seasonal-plot-height",4)
-                sns.set(rc={'figure.figsize': (width, height)})
-                folder = os.path.join(self.output_folder, "seasonal")
-                os.makedirs(folder,exist_ok=True)
-                filename = f"{band}_{mask}.png"
-                image_path = os.path.join(folder, filename)
-                df = timeseries[band]
-                sns.relplot(kind="line", x="day",y="mean",hue=("year"), data=df[df['area'] == mask],marker='o')
-                plt.savefig(image_path,bbox_inches="tight",dpi=dpi)
-                timeseries_container_div.add_element("h3").add_text(f"{band} / {mask}")
-                timeseries_container_div.add_element("img",{"src":f"seasonal/{filename}"})
-        p.complete("Done")
+        for (timeseries_name,timeseries_spec, timeseries_detail) in self.timeseries_definitions:
 
+            timeseries_title = timeseries_spec.get("title",timeseries_name)
 
+            timeseries_container_div.add_element("h3").add_text(timeseries_title)
+            timeseries_div_id = f"timeseries_{timeseries_name}"
+            timeseries_container_div.add_element("div",{"id":timeseries_div_id, "class":"timeseries_chart"})
+            timeseries_detail["div_id"] = timeseries_div_id
+
+    def build_terrain_view(self, terrain_container_div, builder):
+        terrain_container_div.add_element("input", {"id": "exit_terrain_view", "type":"button", "value":"Exit Terrain View"})
+        terrain_container_div.add_element("p")
+        terrain_container_div.add_element("canvas",{"id": "render_canvas"})

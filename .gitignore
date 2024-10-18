@@ -130,3 +130,11 @@ dmypy.json
 
 # PyCharm
 .idea
+
+# test output files
+test/area_293_output_api/
+test/area_293_output_cli/
+test/mandelbrot.png
+test/mandlebrot.nc
+test/mandlebrot_cmdline.png
+

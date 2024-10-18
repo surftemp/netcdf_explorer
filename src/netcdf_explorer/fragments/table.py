@@ -19,13 +19,18 @@ class TableFragment(ElementFragment):
 
     def __init__(self, attrs={},style={}):
         super().__init__("table",attrs,style)
+        self.thead = self.add_element("thead")
+        self.tbody = self.add_element("tbody")
 
-    def set_column_ids(self, column_ids):
-        for column_id in column_ids:
-            self.add_element("col",{"id":column_id})
+    def set_column_ids(self, column_ids, columns_hidden=None):
+        for idx in range(len(column_ids)):
+            style = {}
+            if columns_hidden and columns_hidden[idx]:
+                style["visibility"] = "collapse"
+            self.add_element("col",attrs={"id":column_ids[idx]}, style=style)
 
     def add_row(self, cells):
-        tr = self.add_element("tr")
+        tr = self.tbody.add_element("tr")
         if isinstance(cells,str):
             tr.add_element("td",attrs={"colspan":"100%"}).add_text(cells)
         else:
@@ -37,7 +42,7 @@ class TableFragment(ElementFragment):
                     td.add_fragment(cell)
 
     def add_header_row(self, cells):
-        tr = self.add_element("tr")
+        tr = self.thead.add_element("tr")
         for cell in cells:
             td = tr.add_element("th")
             if isinstance(cell,str):

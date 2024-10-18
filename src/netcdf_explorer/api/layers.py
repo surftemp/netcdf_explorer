@@ -56,9 +56,7 @@ def save_image_falsecolour(data_red, data_green, data_blue, path, red_gamma=0.5,
     im = Image.fromarray(arr,mode="RGB")
     im.save(path)
 
-def save_image_mask(arr, path, r, g, b, mask):
-    if mask is not None:
-        arr = np.bitwise_and(arr,mask)
+def save_image_mask(arr, path, r, g, b):
     alist = []
     a = np.zeros(arr.shape)
     alist.append((a + r).astype(np.uint8))
@@ -86,6 +84,38 @@ def save_image_discrete(arr,path,values):
     im = Image.fromarray(np.uint8((np.vectorize(get_rgba,signature='()->(n)')(arr))),mode="RGBA")
     im.save(path)
 
+class LayerGroup:
+
+    def __init__(self,layer, converter, layer_name, layer_label, sublayers):
+        self.layer_name = layer_name
+        self.layer_label = layer_label
+        self.sublayers = sublayers
+
+    def has_legend(self):
+        return self.sublayers[0].has_legend()
+
+    def build_legend(self, path):
+        return self.sublayers[0].build_legend(path)
+
+    def check(self, ds):
+        for layer in self.sublayers:
+            err = layer.check(ds)
+            if err:
+                return err
+
+    def build(self,ds,path):
+        for layer in self.sublayers:
+            layer.build(ds,path)
+
+    def save_data(self):
+        return False
+
+    def get_layers(self):
+        return self.sublayers
+
+    def get_sublayers(self):
+        return self.sublayers
+
 class LayerBase:
 
     def __init__(self, layer, converter, layer_name, layer_label, selectors={}):
@@ -105,6 +135,13 @@ class LayerBase:
         self.time_coordinate = layer.get("coordinates",{}).get("time",converter.time_coordinate)
         self.x_coordinate = layer.get("coordinates",{}).get("x",converter.x_coordinate)
         self.y_coordinate = layer.get("coordinates",{}).get("y",converter.y_coordinate)
+        self.group = None
+
+    def set_group(self, group):
+        self.group = group
+
+    def get_group(self):
+        return self.group
 
     def check(self, ds):
         for variable in [self.x_coordinate, self.y_coordinate, self.time_coordinate]:
@@ -143,6 +180,9 @@ class LayerBase:
 
     def save_data(self):
         return False
+
+    def get_sublayers(self):
+        return None
 
 
 class LayerRGB(LayerBase):
@@ -272,13 +312,12 @@ class LayerWMS(LayerBase):
 
 class LayerMask(LayerBase):
 
-    def __init__(self, layer, converter, layer_name, layer_label, selectors, band_name, r, g, b, mask):
+    def __init__(self, layer, converter, layer_name, layer_label, selectors, band_name, r, g, b):
         super().__init__(layer, converter, layer_name, layer_label, selectors)
         self.band_name = band_name
         self.r = r
         self.g = g
         self.b = b
-        self.mask = mask
 
     def has_legend(self):
         return False
@@ -291,7 +330,7 @@ class LayerMask(LayerBase):
             return f"No variable {self.band_name}"
 
     def build(self,ds,path):
-        save_image_mask(self.get_data(ds[self.band_name].astype(int)), path, self.r, self.g, self.b, self.mask)
+        save_image_mask(self.get_data(ds[self.band_name].astype(int)), path, self.r, self.g, self.b)
 
 class ImageLayerDiscrete(LayerBase):
 
@@ -321,11 +360,22 @@ class ImageLayerDiscrete(LayerBase):
 class LayerFactory:
 
     @staticmethod
-    def create(converter, layer_name, layer):
+    def create(converter, layer_name, layer, in_layer_group=False):
         layer_type = layer["type"]
         layer_label = layer.get("label", layer_name)
         selectors = layer.get("selectors", {})
-        if layer_type == "single":
+        if layer_type == "layer_group":
+            if in_layer_group:
+                raise Exception("Cannot nest layer groups")
+            sublayers = []
+            for (sublayer_name, sublayer) in layer.get("layers",{}).items():
+                sublayers.append(LayerFactory.create(converter,sublayer_name,sublayer,in_layer_group=True))
+            if len(sublayers) == 0:
+                raise Exception("Layer group should contain at least one layer")
+            created_layer = LayerGroup(layer, converter, layer_name, layer_label, sublayers)
+            for sublayer in sublayers:
+                sublayer.set_group(created_layer)
+        elif layer_type == "single":
             layer_band = layer.get("band", layer_name)
             vmin = layer["min_value"]
             vmax = layer["max_value"]
@@ -348,8 +398,7 @@ class LayerFactory:
                 g = layer.get("g",0)
                 b = layer.get("b",0)
 
-            mask = layer.get("mask", None)
-            created_layer = LayerMask(layer, converter, layer_name, layer_label, selectors, layer_band, r, g, b, mask)
+            created_layer = LayerMask(layer, converter, layer_name, layer_label, selectors, layer_band, r, g, b)
         elif layer_type == "rgb":
             red_band = layer["red_band"]
             green_band = layer["green_band"]

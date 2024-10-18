@@ -40,6 +40,10 @@ class DataImage {
         this.layer_options[layer_name] = options;
     }
 
+    get_data(layer_name, x, y) {
+        return this.data_layers[layer_name][y][x];
+    }
+
     get_height() {
         return this.height;
     }
