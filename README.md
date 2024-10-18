@@ -85,9 +85,15 @@ Example usage:
 bigplot --input-path data.nc --input-variable myvar --title "MyVAR plot" --cmap viridis --vmin 0 --vmax 100 --output-path plot.png
 ```
 
-## acknowledgements
+## Acknowledgements
 
-`generate_html` incorporates code from leafletjs - see [https://leafletjs.com/](https://leafletjs.com/)
+This repo incorporates code from:
+
+| Project   | License              | GitHub                                                                             |
+|-----------|----------------------|------------------------------------------------------------------------------------|
+| leafletjs | BSD 2-Clause License | [https://leafletjs.com/](https://leafletjs.com/)                                   |
+| babylonJS | Apache V2 License    | [https://github.com/BabylonJS/Babylon.js](https://github.com/BabylonJS/Babylon.js) |
+| dygraphs  | MIT License          | [https://github.com/danvk/dygraphs](https://github.com/danvk/dygraphs)             |
 
 
 
