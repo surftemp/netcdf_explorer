@@ -5,12 +5,17 @@ class DataImage {
     constructor() {
         this.height = null;
         this.width = null;
+        this.layer_names = [];
         this.data_layers = {};
         this.layer_options = {};
         this.ele = null;
         this.mouseover_listener = null;
         this.mouseout_listener = null;
         this.zoom = 1;
+    }
+
+    register_layer(layer_name) {
+        this.layer_names.push(layer_name);
     }
 
     async load(layer_name, data_source) {
@@ -101,8 +106,8 @@ class DataImage {
         let x = Math.floor(x_frac * this.width);
         let y = Math.floor((1-y_frac) * this.height);
         let s = "";
-        for (var layer_name in this.data_layers) {
-            let v = this.get_value(layer_name, y, x);
+        this.layer_names.forEach((layer_name) => {
+            let v = (layer_name in this.data_layers) ? this.get_value(layer_name, y, x) : "[loading]";
             let label = "{value}";
             let fixed = 2;
             if (layer_name in this.layer_options) {
@@ -122,7 +127,7 @@ class DataImage {
             }
             s += "<p>" + label.replace("{value}", v) + "</p>";
 
-        }
+        });
         return s;
     }
 }

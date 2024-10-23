@@ -12,6 +12,8 @@ class HtmlView {
         this.labels = null;
         this.di = null; // the dataimage used in the overlay view
 
+        this.base_url = window.location.origin + window.location.pathname
+
         // locate overlay controls and other elements
         this.time_range = document.getElementById("time_index");
         this.zoom_control = document.getElementById("zoom_control");
@@ -46,6 +48,8 @@ class HtmlView {
 
         this.terrain_view_button = document.getElementById("terrain_view_btn");
         this.exit_terrain_view_button = document.getElementById("exit_terrain_view");
+        this.terrain_zoom = document.getElementById("terrain_zoom");
+        this.terrain_zoom_value = document.getElementById("terrain_zoom_value");
 
         this.grid_label_controls = {}; // label_group => [label_value => label_control]
         this.overlay_label_controls = {}; // label_group => label_value => label_control
@@ -57,6 +61,12 @@ class HtmlView {
 
         // record custom min/max/cmaps selected in overlay view for data layers only
         this.data_layers = {};
+
+        // for each layer_group, record the current activate layer
+        this.layer_group_active_layers = {};
+
+        // record the last image url viewed in overlay mode for each layer
+        this.overlay_urls = {};
 
         if (this.overlay_container) {
             this.lm = new LeafletMap('map',
@@ -83,6 +93,20 @@ class HtmlView {
         }
 
         this.tv = null; // populated with a TerrainView object when in "terrain view" mode
+        if (this.terrain_zoom) {
+            this.terrain_zoom_value.innerHTML = this.terrain_zoom.value;
+            this.terrain_zoom.addEventListener("change", (evt) => {
+                if (this.terrain_zoom_value) {
+                    this.terrain_zoom_value.innerHTML = this.terrain_zoom.value;
+                }
+                this.tv.set_terrain_zoom(Number.parseFloat(this.terrain_zoom.value));
+            });
+            this.terrain_zoom.addEventListener("input", (evt) => {
+                if (this.terrain_zoom_value) {
+                    this.terrain_zoom_value.innerHTML = this.terrain_zoom.value;
+                }
+            });
+        }
     }
 
     handle_map_mouseover(y_frac, x_frac) {
@@ -217,11 +241,12 @@ class HtmlView {
         return "";
     }
 
-    init() {
+    async init() {
         // initialise the view, to be called once load has completed
         // bind to the controls in this page
 
-        const params = new URLSearchParams(window.location.search);
+
+
 
         if (this.grid_view_button) {
             this.grid_view_button.addEventListener("click", (evt) => {
@@ -282,9 +307,8 @@ class HtmlView {
             });
         }
 
-        if (params.has('index')) {
-            this.current_index = Number.parseInt(params.get('index'));
-        }
+
+
 
         for (let month = 1; month <= 12; month += 1) {
             let cb_elt = document.getElementById("month" + month);
@@ -293,22 +317,21 @@ class HtmlView {
             }
         }
 
-        let groups_encountered = {};
         this.scenes.layers.forEach(layer => {
             let group = this.get_layer_group(layer.name);
             this.layer_opacities[layer.name] = 1;
-            if (group && group in groups_encountered) {
+            if (group && group in this.layer_group_active_layers) {
                 // hide layers that are grouped if they are not the first layer in their group
                 this.lm.set_layer_opacity(layer.name, 0);
             } else {
                 this.lm.set_layer_opacity(layer.name, 1);
-            }
-            if (group) {
-                groups_encountered[group] = true;
+                this.layer_group_active_layers[group] = layer.name;
             }
             let r = document.getElementById(layer.name + "_opacity");
-            r.value = "100";
-            r.addEventListener("input", this.create_opacity_callback(layer.name));
+            if (r) {
+                r.value = "100";
+                r.addEventListener("input", this.create_opacity_callback(layer.name));
+            }
         });
 
         if (this.layer_container && this.show_layers) {
@@ -372,69 +395,59 @@ class HtmlView {
             });
         }
 
-        // by default open the grid container if it exists
-        if (this.grid_container) {
-            this.show_container(this.grid_container);
-        } else if (this.timeseries_container) {
-            // otherwise open the timeseries container
-            this.show_container(this.timeseries_container);
-        }
-
         const make_hide_column_callback = (col_id) => {
-            return () => {
+            return (evt) => {
                 document.getElementById(col_id).style.visibility = "collapse";
             }
         }
 
-        const make_group_select_callback = (col_id) => {
+        const make_group_select_column_callback = (layer_name) => {
             return (evt) => {
-                document.getElementById(col_id).style.visibility = "collapse";
-                let layer_name = evt.target.value;
-                let target_group_select_id = layer_name+"_group_select";
-                let target_col_id = layer_name+"_col";
-                document.getElementById(target_col_id).style.visibility = "visible";
-                docuemnt.getElementById(target_group_select_id).value = layer_name;
+                this.show_group_column(evt.target.value);
+                this.show_group_row(evt.target.value);
             }
         }
 
-        const make_group_select_row_callback = () => {
+        const make_group_select_row_callback = (layer_name) => {
             return (evt) => {
-                let layer_name = evt.target.value;
-                let group_name = this.get_layer_group(layer_name);
-                if (group_name) {
-                    let grouped_layers = this.scenes.layer_groups[group_name];
-                    for (let idx=0; idx<grouped_layers.length; idx+=1) {
-                        let grouped_layer_name = grouped_layers[idx];
-                        let target_group_select_id = grouped_layer_name + "_group_select_row";
-                        let overlay_row_id = grouped_layer_name + "_overlay_row";
-                        if (grouped_layer_name === layer_name) {
-                            document.getElementById(overlay_row_id).style.display = "table-row";
-                            document.getElementById(overlay_row_id).value = layer_name;
-                            this.lm.set_layer_opacity(layer_name, this.layer_opacities[layer_name]);
-                        } else {
-                            document.getElementById(overlay_row_id).style.display = "none";
-                            this.lm.set_layer_opacity(grouped_layer_name, 0);
-                        }
-                    }
-                }
+                this.show_group_column(evt.target.value);
+                this.show_group_row(evt.target.value);
             }
         }
 
         this.scenes.layers.forEach(layer => {
             let col_id = layer.name + "_col";
-            let hide_btn = layer.name + "_hide";
-            document.getElementById(hide_btn).addEventListener("click", make_hide_column_callback(col_id));
+            let hide_btn_id = layer.name + "_hide";
+            let hide_btn = document.getElementById(hide_btn_id);
+            if (hide_btn) {
+                hide_btn.addEventListener("click", make_hide_column_callback(col_id));
+                let group_name = this.get_layer_group(layer.name);
+                if (group_name) {
+                    let group_select_id = layer.name + "_group_select";
+                    let group_select = document.getElementById(group_select_id);
+                    if (group_select) {
+                        group_select.addEventListener("input", make_group_select_column_callback(layer.name));
+                    }
 
-            let group_select_id = layer.name + "_group_select";
-            let group_select = document.getElementById(group_select_id);
-            if (group_select) {
-                group_select.addEventListener("input", make_group_select_callback(col_id));
+                    let group_select_row_id = layer.name + "_group_select_row";
+                    let group_select_row = document.getElementById(group_select_row_id);
+                    if (group_select_row) {
+                        group_select_row.addEventListener("input", make_group_select_row_callback(layer.name));
+                    }
+                }
             }
+        });
 
-            let group_select_row_id = layer.name + "_group_select_row";
-            let group_select_row = document.getElementById(group_select_row_id);
-            if (group_select_row) {
-                group_select_row.addEventListener("input", make_group_select_row_callback());
+        // initialise layer groups to show the first layer
+        let groups_initialised = {};
+        this.scenes.layers.forEach(layer => {
+            let group_name = this.get_layer_group(layer.name);
+            if (group_name) {
+                if (!(group_name in groups_initialised)) {
+                    this.show_group_row(layer.name);
+                    this.show_group_column(layer.name);
+                    groups_initialised[layer.name] = true;
+                }
             }
         });
 
@@ -515,13 +528,15 @@ class HtmlView {
                 let min_control = document.getElementById(layer.name + "_min_input");
                 let max_control = document.getElementById(layer.name + "_max_input");
                 let select_control = document.getElementById(layer.name + "_camp_selector");
-                this.create_custom_cmap_callback(layer.name, select_control, min_control, max_control);
+                if (min_control && max_control && select_control) {
+                    this.create_custom_cmap_callback(layer.name, select_control, min_control, max_control);
+                }
             }
         }
 
         if (this.terrain_view_button) {
-            this.terrain_view_button.addEventListener("click", () => {
-                this.open_terrain_view();
+            this.terrain_view_button.addEventListener("click", async () => {
+                await this.open_terrain_view();
             });
         }
 
@@ -532,10 +547,73 @@ class HtmlView {
         }
 
         this.update_filters();
+
+        // by default open the grid container if it exists
+        if (this.grid_container) {
+            const params = new URLSearchParams(window.location.search);
+            if (params.has('index')) {
+                this.current_index = Number.parseInt(params.get('index'))-1;
+                if (this.current_index < 0) {
+                    this.current_index = 0;
+                }
+                if (this.current_index >= this.index.length) {
+                    this.current_index = this.index.length-1;
+                }
+                this.show_container(this.overlay_container);
+            } else {
+                this.show_container(this.grid_container);
+            }
+        } else if (this.timeseries_container) {
+            // otherwise open the timeseries container
+            this.show_container(this.timeseries_container);
+        }
+
         if (this.time_range) {
             this.update_time_range();
         }
+
         this.show();
+    }
+
+    show_group_column(layer_name) {
+        let group_name = this.get_layer_group(layer_name);
+        if (group_name) {
+            let grouped_layers = this.scenes.layer_groups[group_name];
+            for (let idx = 0; idx < grouped_layers.length; idx += 1) {
+                let grouped_layer_name = grouped_layers[idx];
+                let col_id = grouped_layer_name + "_col";
+                if (grouped_layer_name === layer_name) {
+                    document.getElementById(col_id).style.visibility = "visible";
+                } else {
+                    document.getElementById(col_id).style.visibility = "collapse";
+                }
+                let group_select_id = grouped_layer_name + "_group_select";
+                document.getElementById(group_select_id).value = layer_name;
+            }
+        }
+    }
+
+    show_group_row(layer_name) {
+        let group_name = this.get_layer_group(layer_name);
+        if (group_name) {
+            let grouped_layers = this.scenes.layer_groups[group_name];
+            for (let idx=0; idx<grouped_layers.length; idx+=1) {
+                let grouped_layer_name = grouped_layers[idx];
+                let group_select_row_id = layer_name + "_group_select_row";
+                let target_group_select_id = grouped_layer_name + "_group_select_row";
+                let overlay_row_id = grouped_layer_name + "_overlay_row";
+                if (grouped_layer_name === layer_name) {
+                    document.getElementById(overlay_row_id).style.display = "table-row";
+                    this.lm.set_layer_opacity(layer_name, this.layer_opacities[layer_name]);
+                } else {
+                    document.getElementById(overlay_row_id).style.display = "none";
+
+                    this.lm.set_layer_opacity(grouped_layer_name, 0);
+                }
+                document.getElementById(group_select_row_id).value = layer_name;
+            }
+            this.layer_group_active_layers[group_name] = layer_name;
+        }
     }
 
     show_container(target_container) {
@@ -572,6 +650,7 @@ class HtmlView {
         // update the time range slider to reflect the current index
         if (this.index.length) {
             this.time_range.value = String(100 * (this.current_index / (this.index.length - 1)));
+            history.pushState({}, null, this.base_url+"?index="+(this.current_index+1));
         } else {
             this.time_range.value = "50";
         }
@@ -608,8 +687,25 @@ class HtmlView {
     create_opacity_callback(layer_name) {
         // create a callback for changes to an overlay view opacity slider
         return (evt) => {
-            this.layer_opacities[layer_name] = Number.parseFloat(evt.target.value) / 100;
-            this.lm.set_layer_opacity(layer_name, this.layer_opacities[layer_name]);
+            let opacity = Number.parseFloat(evt.target.value) / 100;
+            this.layer_opacities[layer_name] = opacity;
+            this.lm.set_layer_opacity(layer_name, opacity);
+            let group_name = this.get_layer_group(layer_name);
+            if (group_name) {
+                // this layer belongs to a group
+                // apply the same opacity to all layers in the same group
+                let grouped_layers = this.scenes.layer_groups[group_name];
+                grouped_layers.forEach((group_layer_name) => {
+                    if (layer_name !== group_layer_name) {
+                        this.layer_opacities[group_layer_name] = opacity;
+                        this.lm.set_layer_opacity(layer_name, opacity);
+                        let r = document.getElementById(group_layer_name + "_opacity");
+                        if (r) {
+                            r.value = evt.target.value;
+                        }
+                    }
+                });
+            }
         }
     }
 
@@ -648,22 +744,28 @@ class HtmlView {
             url = image_srcs[layer_name];
         }
         this.lm.add_image_layer(layer_name, url);
+        return url;
     }
 
     show() {
         // called in the overlay view to show the currently selected scene
 
+        this.overlay_urls = {};
+
         let label_specs = this.index[this.current_index].label_specs;
 
         for (let idx = this.scenes.layers.length - 1; idx >= 0; idx = idx - 1) {
-            this.update_image(this.scenes.layers[idx].name);
+            let layer_name = this.scenes.layers[idx].name;
+            let image_url = this.update_image(layer_name);
+            this.overlay_urls[layer_name] = image_url;
         }
         let data_srcs = this.index[this.current_index].data_srcs;
 
         this.di = new DataImage("viridis");
 
         for (let layer_name in data_srcs) {
-            this.di.load(layer_name, data_srcs[layer_name]);
+            this.di.register_layer(layer_name);
+            this.di.load(layer_name, data_srcs[layer_name]); // this is async
         }
 
         if (this.info_content) {
@@ -686,15 +788,51 @@ class HtmlView {
             }
         }
 
-
         if (this.scene_label_elt) {
             let overlay_label = "0/0";
             if (this.index.length) {
                 overlay_label = "(" + (this.current_index + 1) + "/" + this.index.length + ") " + this.index[this.current_index].timestamp;
             }
-
             this.scene_label_elt.innerHTML = overlay_label;
         }
+    }
+
+    async get_overlay_combined_image() {
+        let image_urls = [];
+        for (let idx = this.scenes.layers.length - 1; idx >= 0; idx = idx - 1) {
+            let layer_name = this.scenes.layers[idx].name;
+            let image_url = this.overlay_urls[layer_name];
+            let group = this.get_layer_group(layer_name);
+            if (group && this.layer_group_active_layers[group] !== layer_name) {
+                continue;
+            }
+            let opacity = this.layer_opacities[layer_name];
+            image_urls.push([image_url,opacity]);
+        }
+
+        function make_image_fetcher(url) {
+            return new Promise(resolve => {
+                let img = new Image();
+                img.onload = () => {
+                    resolve(img);
+                }
+                img.src = url;
+            });
+        }
+
+        let cnv = new OffscreenCanvas(this.di.get_width(), this.di.get_height());
+        let ctx = cnv.getContext("2d");
+        for(let idx=0; idx<image_urls.length; idx++) {
+            let url = image_urls[idx][0]
+            let opacity = image_urls[idx][1];
+            let p = make_image_fetcher(url);
+            let img = await p;
+            ctx.globalAlpha = opacity;
+            ctx.drawImage(img, 0, 0);
+            ctx.globalAlpha = 1.0;
+        }
+        let blob = await cnv.convertToBlob({"type":"image/png"});
+        return URL.createObjectURL(blob);
     }
 
     setup_drag(elt, header_elt, initial_top, initial_left) {
@@ -738,12 +876,15 @@ class HtmlView {
         }
     }
 
-    open_terrain_view() {
+    async open_terrain_view() {
         this.show_container(this.terrain_container);
         let elevation_band = this.scenes["terrain_view"]["elevation_band"];
-        let image_layer = this.scenes["terrain_view"]["image_layer"];
-        let image_url = this.index[this.current_index].image_srcs[image_layer];
-        this.tv = new TerrainView(this.di, elevation_band, image_url);
+        let image_url = await this.get_overlay_combined_image();
+        let zoom = 1;
+        if (this.terrain_zoom) {
+            zoom = Number.parseFloat(this.terrain_zoom.value);
+        }
+        this.tv = new TerrainView(this.di, elevation_band, image_url, zoom);
         this.tv.open();
     }
 

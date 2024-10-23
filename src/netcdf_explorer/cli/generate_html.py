@@ -23,13 +23,15 @@
 import argparse
 import os
 import json
+import shutil
+
 import xarray as xr
 import numpy as np
 import logging
 import yaml
 import sys
 
-from netcdf_explorer.api.html_generator import HTMLGenerator, strip_json5_comments
+from netcdf_explorer.api.html_generator import HTMLGenerator
 
 def subset(ds, case_dimension, sample_count, sample_cases):
     n = len(ds[case_dimension])
@@ -55,6 +57,8 @@ def main():
     parser.add_argument("--output-folder", help="folder to write html output", default="html_output")
     parser.add_argument("--config-path", help="JSON or YAML file specifying one or more layer specifications",
                         default="layers.json", required=True)
+    parser.add_argument("--install-server-script", action="store_true",
+                        help="Install a serve_html.py script")
 
     parser.add_argument("--sample-count", type=int, default=None,
                         help="randomly sample this many cases from each file for display")
@@ -71,12 +75,18 @@ def main():
     with open(args.config_path) as f:
         if args.config_path.endswith(".yml") or args.config_path.endswith(".yaml"):
             config = yaml.load(f, Loader=yaml.FullLoader)
+        elif args.config_path.endswith(".json"):
+            config = json.loads(f.read())
         else:
-            stripped = strip_json5_comments(f.read())
-            config = json.loads(stripped)
+            print("Error - config file should be json (.json) or yaml (.yml or .yaml) format")
+            sys.exit(-1)
         dimensions = config.get("dimensions", {})
         coordinates = config.get("coordinates", {})
         case_dimension = dimensions.get("case", None)
+
+    if case_dimension is None:
+        print("Error - please provide a case dimension")
+        sys.exit(-1)
 
     ds_list = []
     filename_list = []
@@ -115,11 +125,6 @@ def main():
         if args.file_count is not None and file_count >= args.file_count:
             break
 
-    if case_dimension is None:
-        # create a dummy case dimension
-        case_dimension = "case"
-        config["dimensions"]["case"] = case_dimension
-
     if len(ds_list) > 1:
         input_ds = xr.concat(ds_list, dim=case_dimension)
         input_ds["source_filenames"] = xr.DataArray(filename_list, dims=(case_dimension,))
@@ -136,6 +141,11 @@ def main():
                                  download_from=download_filepath,
                                  filter_controls=args.filter_controls)
     g.run()
+
+    if args.install_server_script:
+        src_path = os.path.join(os.path.split(__file__)[0], "serve_html.py")
+        dst_path = os.path.join(args.output_folder, "serve_html.py")
+        shutil.copyfile(src_path,dst_path)
 
 
 if __name__ == '__main__':

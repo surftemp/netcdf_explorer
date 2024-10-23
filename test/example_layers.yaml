@@ -1,0 +1,98 @@
+
+# specify which dimension is used to provide the case
+# all the variables referenced in the layers section must include this dimension
+
+dimensions:
+  case: time
+  x: x
+  y: y
+
+# specify the names of the coordinates used in the time, x and y dimensions
+# note that all these coordinates must be 1-dimensional
+# the x- and y-coordinates must define a regular grid
+
+coordinates:
+  x: x
+  y: y
+  time: time
+
+image:
+  grid-width: 250
+  max-zoom": 10
+
+info:
+  Date: "${str(data[\"time\"].data)[0:10]}"
+
+labels:
+  # labels specify one or more groups of categories
+  # the label name and categories can match a variable in the data, if so the labels will be loaded from the variable
+  # the category values in each group are defined here...
+  cloudy: [ "very", "somewhat", "a little", "none" ]
+
+derive_bands:
+  CLOUD_MASK: "not (QA_PIXEL & 8 == 0)",
+  EXTENDED_CLOUD_MASK: "not (QA_PIXEL & 30 == 0)"
+
+timeseries:
+  plots:
+    ST_cloudy:
+      masks: ["CLOUD_MASK","EXTENDED_CLOUD_MASK"]
+      variables: ["ST"]
+
+
+# specify the layers
+layers:
+# layer objects all have a type and label attribute
+# the label is a meaningful description of the layer, used in the html output
+# the type is one of the following:
+#     type=mask: layer represents an integer or boolean variable containing a mask
+#     type=single: layer represents a variable containing a continuous quantity
+#     type=discrete: layer represents a variable containing a discrete quantity
+#     type=rgb: layer represents a false colour depiction of three variables
+#     type=wms: layer represents a WMS image obtained from a specified WMS service
+#
+# depending upon the type, other attributes are also available
+#
+# examples of each of the layer types are included below
+  CLOUD_MASK:
+    label: "Basic Cloud Mask (8)"
+    type: "mask"
+    band: "CLOUD_MASK"
+    r: 200  # r,g,b specifies the colour to show when the pixel is included (transparent if not)
+    g: 200
+    b: 200
+
+  ALL_CLOUD_MASK:
+    label: "Extended Cloud Mask (30)"
+    type: "mask"
+    band: "EXTENDED_CLOUD_MASK"
+    r: 150
+    g: 150
+    b: 150
+
+  ST:
+    label: "Surface Temperature"
+    type: "single"
+    band: "ST" # use the ST variable in the input dataset
+    min_value: 270 # specify the range of values to be depicted
+    max_value: 300
+    cmap: "rainbow"  # specify a colour map, known to matplotlib (see https://matplotlib.org/stable/users/explain/colors/colormaps.html)
+    data:
+      label: "B10_ST: {value} K"
+      fixed": 2
+
+  REF:
+    label: "Reflectance"
+    type: "rgb"
+    red_band: "B4"     # variable to use to provide red intensity
+    green_band: "B3"   # variable to use to provide green intensity
+    blue_ban": "B2"    # variable to use to provide blue intensity
+
+  OSM:
+    label: "Open Street Map"
+    type: "wms"
+    scale: 1  # increase this to request a larger, more detailed WMS image
+      # specify a WMS provider URL that should include placeholders {WIDTH}, {HEIGHT}, {XMIN}, {YMIN}, {XMAX}, {YMAX}
+      # not that the URL should specify the correct CRS for the projection used in the variable's x and y coordinates
+    url: "https://eocis.org/mapproxy/service?service=WMS&request=GetMap&layers=osm&styles=&format=image%2Fpng&transparent=false&version=1.1.1&width={WIDTH}&height={HEIGHT}&srs=EPSG%3A27700&bbox={XMIN},{YMIN},{XMAX},{YMAX}"
+

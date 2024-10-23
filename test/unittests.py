@@ -4,7 +4,7 @@ import xarray as xr
 import numpy as np
 import json
 
-from netcdf_explorer.api.html_generator import HTMLGenerator, strip_json5_comments
+from netcdf_explorer.api.html_generator import HTMLGenerator
 
 class Test(unittest.TestCase):
 
@@ -32,16 +32,16 @@ class Test(unittest.TestCase):
     def test_293_api(self):
         path = os.path.join(os.path.split(__file__)[0],"area_293_min.nc")
         ds = xr.open_dataset(path)
-        layers_path = os.path.join(os.path.split(__file__)[0],"example_layers.json5")
+        layers_path = os.path.join(os.path.split(__file__)[0],"example_layers.json")
         output_folder = os.path.join(os.path.split(__file__)[0], "area_293_output_api")
         with open(layers_path) as f:
-            config = json.loads(strip_json5_comments(f.read()))
+            config = json.loads(f.read())
         gen = HTMLGenerator(config=config, input_ds=ds, output_folder=output_folder, title="area 293", sample_count=None, sample_cases=None,
             download_from=path, filter_controls=False)
         gen.run()
 
     def test_293_commandline(self):
-        cli_test = 'python -m netcdf_explorer.cli.generate_html --input-path area_293_min.nc --title "area_293" --output-folder area_293_output_cli --config-path example_layers.json5 --download-data area_293_min.nc'
+        cli_test = 'python -m netcdf_explorer.cli.generate_html --input-path area_293_min.nc --title "area_293" --output-folder area_293_output_cli --config-path example_layers.yaml --download-data area_293_min.nc'
         os.system(f'(cd {os.path.split(__file__)[0]}; {cli_test})')
 
     def test_bigplot(self):

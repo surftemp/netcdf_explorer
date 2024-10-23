@@ -29,13 +29,14 @@ Use `generate_html` to create a static HTML file and images from a netcdf4 file
 ```
 wget https://github.com/surftemp/netcdf_explorer/raw/main/test/area_293_min.nc
 wget https://github.com/surftemp/netcdf_explorer/raw/main/test/example_layers.json5
-generate_html --input-path area_293_min.nc --title "area_293" --output-folder output_folder_with_html --config-path example_layers.json5
+generate_html --input-path area_293_min.nc --title "area_293" --output-folder output_folder_with_html --config-path example_layers.yaml
 ```
 
 This will:
 
 * read a dataset from file `area_293_min.nc`
-* create HTML output with layers defined in the file `example_layers.json5` (see below) entitled "Test output for netcdf2html"
+* create HTML output with layers defined in the file `example_layers.yaml` (see below) entitled "Test output for netcdf2html"
+* note - configuration files may be supplied in yaml or json format
 * write the generated output html, image files and other associated files to folder `output_folder_with_html`
 
 Open the file `output_folder_with_html/index.html` in your browser to explore the generated imagery
@@ -44,7 +45,7 @@ Open the file `output_folder_with_html/index.html` in your browser to explore th
 
 You will need to define a JSON file or YAML formatted which maps variables in the input dataset to layers in the generated visualisations
 
-This [commented example configuration file](test/example_layers.json5) should explain how the configuration file works
+This [commented example configuration file](test/example_layers.yaml) should explain how the configuration file works
 
 ### common command line options
 

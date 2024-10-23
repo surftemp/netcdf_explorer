@@ -24,15 +24,7 @@ import argparse
 import json
 import xarray as xr
 
-def apply_labels(labels_path, netcdf_path):
-    with open(labels_path) as f:
-        labels = json.loads(f.read())
-    case_dimension = labels["case_dimension"]
-    values = labels["values"]
-    ds = xr.Dataset()
-    for label_group in values:
-        ds[label_group] = xr.DataArray(values[label_group],dims=(case_dimension,))
-    ds.to_netcdf(netcdf_path, mode="a")
+from .serve_html import apply_labels
 
 def main():
     parser = argparse.ArgumentParser()

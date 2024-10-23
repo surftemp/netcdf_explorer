@@ -1,12 +1,19 @@
 class TerrainView {
 
-    constructor(data_image, elevation_band, image_url) {
+    constructor(data_image, elevation_band, image_url, terrain_zoom) {
         this.data_image = data_image;
         this.elevation_band = elevation_band;
         this.image_url = image_url;
         this.canvas = null;
         this.scene = null;
         this.engine = null;
+        this.terrain_zoom = terrain_zoom;
+    }
+
+    set_terrain_zoom(terrain_zoom) {
+        this.terrain_zoom = terrain_zoom;
+        this.close();
+        this.open();
     }
 
     open() {
@@ -23,12 +30,15 @@ class TerrainView {
             var paths = [];
             let min_y = null;
             let max_y = null;
+            // x/z scale is 25m per pixel
+            // allow the y scale to zoom the terrain
+            let y_scale = 25 / this.terrain_zoom;
             for (var l = 0; l < mapSubZ; l++) {
                 var path = [];
                 for (var w = 0; w < mapSubX; w++) {
                     var x = (w - mapSubX * 0.5) * 2.0;
                     var z = (l - mapSubZ * 0.5) * 2.0;
-                    var y = this.data_image.get_data(this.elevation_band, w, mapSubZ-(l+1)) * 1/10;
+                    var y = this.data_image.get_data(this.elevation_band, w, mapSubZ-(l+1)) / y_scale;
                     if (min_y === null || min_y > y) {
                         min_y = y;
                     }

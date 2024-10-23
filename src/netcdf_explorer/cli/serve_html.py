@@ -23,9 +23,9 @@ import logging
 import sys
 import json
 
-from flask import Flask, render_template, request, send_from_directory, abort, jsonify, send_file
+import xarray as xr
 
-from .apply_labels import apply_labels
+from flask import Flask, render_template, request, send_from_directory, abort, jsonify, send_file
 
 global folder
 
@@ -35,6 +35,16 @@ app = Flask(__name__)
 labels_path = None
 labels = None
 labels_updated = False
+
+def apply_labels(labels_path, netcdf_path):
+    with open(labels_path) as f:
+        labels = json.loads(f.read())
+    case_dimension = labels["case_dimension"]
+    values = labels["values"]
+    ds = xr.Dataset()
+    for label_group in values:
+        ds[label_group] = xr.DataArray(values[label_group],dims=(case_dimension,))
+    ds.to_netcdf(netcdf_path, mode="a")
 
 class App:
     """
@@ -67,6 +77,11 @@ class App:
     @app.route('/images/<string:path>', methods=['GET'])
     def fetch_images(path):
         return send_from_directory(folder + "/images", path)
+
+    @staticmethod
+    @app.route('/dependencies/<string:path>', methods=['GET'])
+    def fetch_dependencies(path):
+        return send_from_directory(folder + "/dependencies", path)
 
     @staticmethod
     @app.route('/service_info/services.json', methods=['GET'])

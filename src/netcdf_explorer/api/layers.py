@@ -27,6 +27,7 @@ import requests
 from PIL import Image
 from matplotlib import cm
 import numpy as np
+import xarray as xr
 
 from .data_encoder import DataEncoder
 
@@ -90,6 +91,20 @@ class LayerGroup:
         self.layer_name = layer_name
         self.layer_label = layer_label
         self.sublayers = sublayers
+        self.grid_view = False
+        self.overlay_view = False
+
+    def set_grid_view(self, grid_view):
+        self.grid_view = grid_view
+
+    def get_grid_view(self):
+        return self.grid_view
+
+    def set_overlay_view(self, overlay_view):
+        self.overlay_view = overlay_view
+
+    def get_overlay_view(self):
+        return self.overlay_view
 
     def has_legend(self):
         return self.sublayers[0].has_legend()
@@ -136,12 +151,33 @@ class LayerBase:
         self.x_coordinate = layer.get("coordinates",{}).get("x",converter.x_coordinate)
         self.y_coordinate = layer.get("coordinates",{}).get("y",converter.y_coordinate)
         self.group = None
+        self.case_wise = False
+        self.grid_view = False
+        self.overlay_view = False
 
     def set_group(self, group):
         self.group = group
 
     def get_group(self):
         return self.group
+
+    def set_case_wise(self, is_case_wise):
+        self.case_wise = is_case_wise
+
+    def get_case_wise(self):
+        return self.case_wise
+
+    def set_grid_view(self, grid_view):
+        self.grid_view = grid_view
+
+    def get_grid_view(self):
+        return self.grid_view
+
+    def set_overlay_view(self, overlay_view):
+        self.overlay_view = overlay_view
+
+    def get_overlay_view(self):
+        return self.overlay_view
 
     def check(self, ds):
         for variable in [self.x_coordinate, self.y_coordinate, self.time_coordinate]:
@@ -164,6 +200,18 @@ class LayerBase:
             da = da.isel(**self.selectors)
         da = da.squeeze()
         ndims = len(da.dims)
+
+        # make x and y coordinates 2D if they are 1D
+        if ndims == 1:
+            shape = (self.converter.data_height, self.converter.data_width)
+            if da.dims[0] == self.converter.y_dimension:
+                da = xr.DataArray(
+                    np.broadcast_to(da.data[None].T, shape),
+                    dims=(self.converter.y_dimension, self.converter.x_dimension))
+            elif da.dims[0] == self.converter.x_dimension:
+                da = xr.DataArray(
+                    np.broadcast_to(da.data, shape), dims=(self.converter.y_dimension, self.converter.x_dimension))
+            ndims = len(da.dims)
         if ndims != 2:
             raise Exception(f"Data for layer {self.layer_name} is not 2D")
 
@@ -207,6 +255,8 @@ class LayerRGB(LayerBase):
         for variable in [self.red_variable, self.green_variable, self.blue_variable]:
             if variable not in ds:
                 return f"No variable {variable}"
+            if self.converter.case_dimension and self.converter.case_dimension in ds[variable].dims:
+                self.set_case_wise(True)
 
     def build(self,ds,path):
         red = self.get_data(ds[self.red_variable])
@@ -235,6 +285,8 @@ class LayerSingleBand(LayerBase):
             return err
         if self.band_name not in ds:
             return f"No variable {self.band_name}"
+        if self.converter.case_dimension and self.converter.case_dimension in ds[self.band_name].dims:
+            self.set_case_wise(True)
 
     def build(self,ds,path):
         save_image(self.get_data(ds[self.band_name]), self.vmin, self.vmax, path, self.cmap_name)
@@ -328,6 +380,8 @@ class LayerMask(LayerBase):
             return err
         if self.band_name not in ds:
             return f"No variable {self.band_name}"
+        if self.converter.case_dimension and self.converter.case_dimension in ds[self.band_name].dims:
+            self.set_case_wise(True)
 
     def build(self,ds,path):
         save_image_mask(self.get_data(ds[self.band_name].astype(int)), path, self.r, self.g, self.b)
@@ -350,6 +404,8 @@ class ImageLayerDiscrete(LayerBase):
             rgb = ColoursToRGB.lookup(color)
             if rgb is None:
                 return f"Invalid colour {color}"
+        if self.converter.case_dimension and self.converter.case_dimension in ds[self.band_name].dims:
+            self.set_case_wise(True)
 
     def build(self,ds,path):
         save_image_discrete(self.get_data(ds[self.band_name]), path, self.values)
@@ -364,12 +420,14 @@ class LayerFactory:
         layer_type = layer["type"]
         layer_label = layer.get("label", layer_name)
         selectors = layer.get("selectors", {})
+        grid_view = layer.get("grid_view", True)
+        overlay_view = layer.get("overlay_view", True)
         if layer_type == "layer_group":
             if in_layer_group:
                 raise Exception("Cannot nest layer groups")
             sublayers = []
             for (sublayer_name, sublayer) in layer.get("layers",{}).items():
-                sublayers.append(LayerFactory.create(converter,sublayer_name,sublayer,in_layer_group=True))
+                sublayers.append(LayerFactory.create(converter,layer_name+"_"+sublayer_name,sublayer,in_layer_group=True))
             if len(sublayers) == 0:
                 raise Exception("Layer group should contain at least one layer")
             created_layer = LayerGroup(layer, converter, layer_name, layer_label, sublayers)
@@ -418,7 +476,9 @@ class LayerFactory:
             created_layer = LayerWMS(layer, converter, layer_name, layer_label, url, scale)
         else:
             raise Exception(f"Unknown layer type {layer_type}")
-
+        if not in_layer_group:
+            created_layer.set_grid_view(grid_view)
+            created_layer.set_overlay_view(overlay_view)
         return created_layer
 
 

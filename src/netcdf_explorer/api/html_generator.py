@@ -25,7 +25,6 @@ import datetime
 import os
 import sys
 
-import pandas as pd
 import xarray as xr
 import shutil
 import json
@@ -34,10 +33,9 @@ from mako.template import Template
 import pyproj
 import logging
 import copy
-import matplotlib.pyplot as plt
-import seaborn as sns
 
-from .layers import LayerFactory, LayerSingleBand, LayerWMS, LayerMask, LayerGroup
+
+from .layers import LayerFactory, LayerSingleBand, LayerWMS
 from .expr_parser import ExpressionParser
 
 from netcdf_explorer.htmlfive.html5_builder import Html5Builder, ElementFragment
@@ -86,26 +84,6 @@ class Progress(object):
         sys.stdout.write("\n")
         sys.stdout.flush()
 
-def strip_json5_comments(original):
-    # perform a minimal filtering of // comments (a subset of JSON5) and return a JSON compatible string
-    lines = original.split("\n")
-    parsed = ""
-    for line in lines:
-        line = line.rstrip()
-        inq = False
-        for idx in range(len(line) - 1):
-            if line[idx] == '"' and (idx==0 or line[idx-1] != "\\"):
-                inq = not inq
-            else:
-                if not inq:
-                    if line[idx:idx + 2] == "//":
-                        line = line[:idx].rstrip()  # cut off comment
-                        break
-        if line:
-            if parsed:
-                parsed += "\n"
-            parsed += line
-    return parsed
 
 class HTMLGenerator:
 
@@ -123,6 +101,15 @@ class HTMLGenerator:
         self.y_coordinate = coordinates.get("y", "")
         self.time_coordinate = coordinates.get("time", "")
         self.input_ds = input_ds
+
+        self.data_width = None
+        self.data_height = None
+
+        if self.x_dimension:
+            self.data_width = self.input_ds.sizes[self.x_dimension]
+        if self.y_dimension:
+            self.data_height = self.input_ds.sizes[self.y_dimension]
+
         self.output_folder = output_folder
         self.title = title
         self.sample_count = sample_count
@@ -142,6 +129,10 @@ class HTMLGenerator:
 
         self.parser = ExpressionParser()
         self.parser.add_unary_operator("not")
+        self.parser.add_binary_operator("*", 5)
+        self.parser.add_binary_operator("/", 5)
+        self.parser.add_binary_operator("+", 4)
+        self.parser.add_binary_operator("-", 4)
         self.parser.add_binary_operator("|", 3)
         self.parser.add_binary_operator("&", 3)
         self.parser.add_binary_operator("==",2)
@@ -207,7 +198,9 @@ class HTMLGenerator:
             for (timeseries_name, timeseries_spec) in config["timeseries"]["plots"].items():
                 valid_variables = []
                 for variable in timeseries_spec["variables"]:
-                    if variable in self.input_ds:
+                    variable_components = variable.split(":")
+                    variable_name = variable_components[0]
+                    if variable_name in self.input_ds:
                         valid_variables.append(variable)
                 if valid_variables:
                     timeseries_spec["variables"] = valid_variables
@@ -228,9 +221,13 @@ class HTMLGenerator:
             dest_path = os.path.join(cmap_folder, cmap + ".json")
             shutil.copyfile(source_path, dest_path)
 
-    def flatten_layers(self, layer_definitions):
+    def flatten_layers(self, layer_definitions, only_grid_view=False, only_overlay_view=False):
         flattened_layers = []
         for layer in layer_definitions:
+            if only_grid_view and not layer.get_grid_view():
+                continue
+            if only_overlay_view and not layer.get_overlay_view():
+                continue
             if layer.get_sublayers() is not None:
                 flattened_layers += layer.get_sublayers()
             else:
@@ -243,10 +240,10 @@ class HTMLGenerator:
             parsed_expression = self.parser.parse(mask_expression)
             arr = self.evaluate_expression(parsed_expression, from_bands)
             dims = []
+            # the dimensions of the derived band should match the longest dimensions of the input bands
             for band in from_bands:
                 if len(self.input_ds[band].dims) > len(dims):
                     dims = self.input_ds[band].dims
-            print(json.dumps(parsed_expression))
             self.input_ds[mask_name] = xr.DataArray(arr,dims=dims)
 
     def evaluate_expression(self, parsed_expression, from_bands_accumulator):
@@ -268,9 +265,27 @@ class HTMLGenerator:
             elif operator == "|":
                 assert len(args) == 2
                 return np.bitwise_or(np.astype(arrays[0],int), np.astype(arrays[1],int))
+            elif operator == "and":
+                assert len(args) == 2
+                return np.logical_and(np.astype(arrays[0],int),np.astype(arrays[1],int))
+            elif operator == "or":
+                assert len(args) == 2
+                return np.logical_or(np.astype(arrays[0],int), np.astype(arrays[1],int))
             elif operator == "not":
                 assert(len(args) == 1)
                 return np.logical_not(arrays[0])
+            elif operator == "*":
+                assert len(args) == 2
+                return np.multiply(arrays[0],arrays[1])
+            elif operator == "/":
+                assert len(args) == 2
+                return np.divide(arrays[0],arrays[1])
+            elif operator == "+":
+                assert len(args) == 2
+                return np.add(arrays[0],arrays[1])
+            elif operator == "-":
+                assert len(args) == 2
+                return np.subtract(arrays[0], arrays[1])
             else:
                 raise Exception(f"Unknown operator: {operator}")
         elif "literal" in parsed_expression:
@@ -302,15 +317,18 @@ class HTMLGenerator:
 
     def get_image_path(self, key, index=None):
         if index is not None:
-            filename = f"{key}{index}.png"
+            filename = f"{key}_{index}.png"
         else:
             filename = f"{key}.png"
         src = os.path.join("images", filename)
         path = os.path.join(self.output_folder, src)
         return (src, path)
 
-    def get_data_path(self, key, index):
-        filename = f"{key}{index}.gz"
+    def get_data_path(self, key, index=None):
+        if index is not None:
+            filename = f"{key}_{index}.gz"
+        else:
+            filename = f"{key}.gz"
         src = os.path.join("data", filename)
         path = os.path.join(self.output_folder, src)
         return (src, path)
@@ -441,19 +459,38 @@ class HTMLGenerator:
                     label_values["netcdf_filename"] = self.netcdf_download_filename
 
             p = Progress("Building images")
+
+            static_image_srcs = {}
+            static_data_srcs = {}
+
+            for layer_definition in self.flatten_layers(self.layer_definitions):
+                if not layer_definition.get_case_wise():
+                    (src, path) = self.get_image_path(layer_definition.layer_name)
+                    layer_definition.build(self.input_ds, path)
+                    static_image_srcs[layer_definition.layer_name] = src
+                    if layer_definition.save_data():
+                        (data_src, data_path) = self.get_data_path(layer_definition.layer_name)
+                        data_options = layer_definition.build_data(self.input_ds, data_path)
+                        static_data_srcs[layer_definition.layer_name] = {"url": data_src, "options": data_options}
+
             for (index, timestamp, ds) in cases:
                 p.report("",index/n)
                 image_srcs = {}
                 data_srcs = {}
 
                 for layer_definition in self.flatten_layers(self.layer_definitions):
-                    (src, path) = self.get_image_path(layer_definition.layer_name, index=index)
-                    layer_definition.build(ds, path)
-                    image_srcs[layer_definition.layer_name] = src
-                    if layer_definition.save_data():
-                        (data_src, data_path) = self.get_data_path(layer_definition.layer_name, index)
-                        data_options = layer_definition.build_data(ds, data_path)
-                        data_srcs[layer_definition.layer_name] = {"url":data_src, "options":data_options}
+                    if layer_definition.get_case_wise():
+                        (src, path) = self.get_image_path(layer_definition.layer_name, index=index)
+                        layer_definition.build(ds, path)
+                        image_srcs[layer_definition.layer_name] = src
+                        if layer_definition.save_data():
+                            (data_src, data_path) = self.get_data_path(layer_definition.layer_name, index)
+                            data_options = layer_definition.build_data(ds, data_path)
+                            data_srcs[layer_definition.layer_name] = {"url":data_src, "options":data_options}
+                    else:
+                        image_srcs[layer_definition.layer_name] = static_image_srcs[layer_definition.layer_name]
+                        if layer_definition.save_data():
+                            data_srcs[layer_definition.layer_name] = static_data_srcs[layer_definition.layer_name]
 
                 if self.labels:
                     for label_group in self.labels:
@@ -486,7 +523,7 @@ class HTMLGenerator:
                             for variable in variables:
                                 headers.append(f"{source_mask}_{variable.replace(':','_')}")
                     else:
-                        headers == variables
+                        headers += variables
 
                     writer.writerow(headers)
                     n = len(self.input_ds[self.time_coordinate])
@@ -495,7 +532,7 @@ class HTMLGenerator:
                         timestamp = str(self.input_ds[self.time_coordinate].data[i])[
                                     :10] if self.time_coordinate else None
 
-                        data_slice = self.input_ds[variable].isel(**{self.case_dimension:i})
+                        data_slice = self.input_ds.isel(**{self.case_dimension:i})
 
                         dt = datetime.datetime.strptime(timestamp, "%Y-%m-%d")
                         row = [dt.strftime("%Y-%m-%d")]
@@ -514,7 +551,7 @@ class HTMLGenerator:
                                         aggregation_fn = variable_components[1]
                                     else:
                                         aggregation_fn = "mean"
-                                    values = xr.where(mask_slice, data_slice, np.nan)
+                                    values = xr.where(mask_slice, data_slice[variable_name], np.nan)
                                     if aggregation_fn == "mean":
                                         value = values.mean(skipna=True).item()
                                     elif aggregation_fn == "min":
@@ -526,7 +563,7 @@ class HTMLGenerator:
                                     row.append(str(value))
                         else:
                             for variable in timeseries_spec["variables"]:
-                                value = data_slice.item()
+                                value = data_slice[variable].item()
                                 row.append(str(value))
 
                         writer.writerow(row)
@@ -674,7 +711,7 @@ class HTMLGenerator:
 
         groups = set()
 
-        for layer_definition in self.flatten_layers(self.layer_definitions)[::-1]:
+        for layer_definition in self.flatten_layers(self.layer_definitions, only_grid_view=True)[::-1]:
             group = layer_definition.get_group()
             columm_id = layer_definition.layer_name + "_col"
             column_ids.append(columm_id)
@@ -692,45 +729,44 @@ class HTMLGenerator:
             header_cells.append("Info")
         if self.labels:
             header_cells.append("Labels")
-        for layer_definition in self.flatten_layers(self.layer_definitions)[::-1]:
+        for layer_definition in self.flatten_layers(self.layer_definitions,only_grid_view=True)[::-1]:
             label = layer_definition.layer_label
             group = layer_definition.get_group()
             if group:
                 label = group.layer_label
+            header_div = ElementFragment("div")
             if layer_definition.layer_name in self.layer_legends:
                 img = ImageFragment(self.layer_legends[layer_definition.layer_name],
                                     layer_definition.layer_name + "_grid_legend", alt_text="legend",
                                     w=self.grid_image_width if self.grid_image_width else image_width)
                 vmin = getattr(layer_definition, "vmin", None)
                 vmax = getattr(layer_definition, "vmax", None)
-                header_cells.append(LegendFragment(label, img, vmin, vmax))
+                header_div.add_fragment(LegendFragment(label, img, vmin, vmax))
             else:
-                header_cells.append(label)
-        tf.add_header_row(header_cells)
-
-        group_selector_cells = [""]
-        button_cells = [""]
-        if self.info:
-            button_cells.append("")
-            group_selector_cells.append("")
-        if self.labels:
-            button_cells.append(self.generate_label_buttons())
-            group_selector_cells.append("")
-
-        for layer_definition in self.flatten_layers(self.layer_definitions)[::-1]:
+                label_fragment = ElementFragment("span").add_text(label)
+                header_div.add_fragment(label_fragment)
             group = layer_definition.get_group()
             if group:
                 sf = SelectFragment({"id": layer_definition.layer_name + "_group_select"})
                 for layer in group.get_layers():
-                    sf.add_option(layer.layer_name, layer.layer_label, is_selected=(layer.layer_name==layer_definition.layer_name))
-                group_selector_cells.append(sf)
-            else:
-                group_selector_cells.append("")
+                    sf.add_option(layer.layer_name, layer.layer_label,
+                                  is_selected=(layer.layer_name == layer_definition.layer_name))
+                header_div.add_fragment(ElementFragment("br"))
+                header_div.add_fragment(sf)
+            header_cells.append(header_div)
+        tf.add_header_row(header_cells)
+
+        button_cells = [""]
+        if self.info:
+            button_cells.append("")
+        if self.labels:
+            button_cells.append(self.generate_label_buttons())
+
+        for layer_definition in self.flatten_layers(self.layer_definitions, only_grid_view=True)[::-1]:
             button_cells.append(
                 ElementFragment("button", {"id": layer_definition.layer_name + "_hide"}).add_text("Hide"))
 
         tf.add_header_row(button_cells)
-        tf.add_header_row(group_selector_cells)
 
         current_group_label = ""
         for (index, timestamp, layer_sources, _, ds) in self.layer_images:
@@ -739,7 +775,7 @@ class HTMLGenerator:
                 cells += [self.generate_info_table(index,ds)]
             if self.labels:
                 cells += [self.generate_label_controls(index)]
-            for layer_definition in self.flatten_layers(self.layer_definitions)[::-1]:
+            for layer_definition in self.flatten_layers(self.layer_definitions,only_grid_view=True)[::-1]:
                 src = layer_sources[layer_definition.layer_name]
                 img = ImageFragment(src, layer_definition.layer_name + "_grid_" + str(index), alt_text=timestamp,
                                     w=self.grid_image_width if self.grid_image_width else image_width)
@@ -816,7 +852,7 @@ class HTMLGenerator:
         slider_container.add_element("input", {"type": "button", "id": "close_all_sliders", "value": "Hide All Layers"})
 
         groups = set()
-        for layer_definition in self.flatten_layers(self.layer_definitions):
+        for layer_definition in self.flatten_layers(self.layer_definitions, only_overlay_view=True):
 
             group = layer_definition.get_group()
             style = {}
@@ -933,5 +969,9 @@ class HTMLGenerator:
 
     def build_terrain_view(self, terrain_container_div, builder):
         terrain_container_div.add_element("input", {"id": "exit_terrain_view", "type":"button", "value":"Exit Terrain View"})
+        terrain_container_div.add_element("span", {"class": "spacer"}).add_text("|")
+        terrain_container_div.add_element("label", attrs={"for": "terrain_zoom"}).add_text("Exaggerate Terrain")
+        terrain_container_div.add_element("input", {"id":"terrain_zoom", "step":"0.1", "type": "range", "min": "1", "max": "10", "value":"1"})
+        terrain_container_div.add_element("span", {"id": "terrain_zoom_value"}).add_text("1")
         terrain_container_div.add_element("p")
         terrain_container_div.add_element("canvas",{"id": "render_canvas"})
