@@ -28,11 +28,14 @@
     "EXTENDED_CLOUD_MASK": "not (QA_PIXEL & 30 == 0)"
   },
   "timeseries": {
-    "plots": {
-      "ST_cloudy": {
-        "masks": ["CLOUD_MASK","EXTENDED_CLOUD_MASK"],
-        "variables": ["ST"]
-      }
+    "ST_cloudy": {
+      "masks": ["CLOUD_MASK","EXTENDED_CLOUD_MASK"],
+      "variables": ["ST"]
+    },
+    "ST_cloudy_seasonal": {
+      "masks": ["EXTENDED_CLOUD_MASK"],
+      "variables": ["ST"],
+      "type": "seasonal"
     }
   },
   "layers": {

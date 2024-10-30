@@ -22,6 +22,7 @@
 
 import csv
 import datetime
+import math
 import os
 import sys
 
@@ -87,8 +88,8 @@ class Progress(object):
 
 class HTMLGenerator:
 
-    def __init__(self, config, input_ds, output_folder, title, sample_count=None, sample_cases=None,
-                 download_from=None, filter_controls=False):
+    def __init__(self, config, input_ds, output_folder, title,
+                 download_from=None, filter_controls=False, index_list=None):
 
         dimensions = config.get("dimensions", {})
         coordinates = config.get("coordinates", {})
@@ -112,8 +113,7 @@ class HTMLGenerator:
 
         self.output_folder = output_folder
         self.title = title
-        self.sample_count = sample_count
-        self.sample_cases = sample_cases
+
         self.max_zoom = image.get("max-zoom", None)
         self.grid_image_width = image.get("grid-width", None)
         self.netcdf_download_filename = os.path.split(download_from)[-1] if download_from else ""
@@ -155,6 +155,13 @@ class HTMLGenerator:
             with open(js_path) as f:
                 js_code += f.read()
 
+        if index_list:
+            with open(os.path.join(self.output_folder,"index.csv"),"w") as of:
+                writer = csv.writer(of)
+                writer.writerow(["case","source_filename","source_index"])
+                for i in range(len(index_list)):
+                    writer.writerow([i+1,index_list[i][0],index_list[i][1]])
+
         with open(os.path.join(self.output_folder, "index.js"), "w") as f:
             f.write(js_code)
 
@@ -195,16 +202,34 @@ class HTMLGenerator:
                 self.layer_definitions.append(layer)
 
         if "timeseries" in config:
-            for (timeseries_name, timeseries_spec) in config["timeseries"]["plots"].items():
+            for (timeseries_name, timeseries_spec) in config["timeseries"].items():
+
                 valid_variables = []
                 for variable in timeseries_spec["variables"]:
                     variable_components = variable.split(":")
                     variable_name = variable_components[0]
                     if variable_name in self.input_ds:
                         valid_variables.append(variable)
-                if valid_variables:
+
+                if len(valid_variables) == 0:
+                    self.logger.warning(f"Unable to add timeseries {timeseries_name}, no valid variables")
+                    continue
+                else:
                     timeseries_spec["variables"] = valid_variables
-                    self.timeseries_definitions.append((timeseries_name, timeseries_spec, {}))
+
+                mask_names = timeseries_spec.get("masks",[])
+                if len(mask_names) > 0:
+                    valid_masks = []
+                    for mask_name in timeseries_spec.get("masks",[]):
+                        if mask_name in self.input_ds:
+                            valid_masks.append(mask_name)
+                    if len(valid_masks) == 0:
+                        self.logger.warning(f"Unable to add timeseries {timeseries_name}, no valid masks")
+                        continue
+                    else:
+                        timeseries_spec["masks"] = valid_masks
+
+                self.timeseries_definitions.append((timeseries_name, timeseries_spec, {}))
 
         self.all_cmaps = sorted(["Purples", "gist_rainbow", "gist_ncar", "Blues", "Greys", "autumn", "gist_gray", "magma", "Set3",
                      "cool", "tab20c", "GnBu", "brg", "cividis", "Pastel1", "YlOrRd", "Spectral", "gist_earth", "PuBu",
@@ -235,21 +260,29 @@ class HTMLGenerator:
         return flattened_layers
 
     def build_derived_bands(self):
-        for (mask_name, mask_expression) in self.derive_bands.items():
+        for (band_name, band_expression) in self.derive_bands.items():
             from_bands = []
-            parsed_expression = self.parser.parse(mask_expression)
-            arr = self.evaluate_expression(parsed_expression, from_bands)
+            parsed_expression = self.parser.parse(band_expression)
+            try:
+                arr = self.evaluate_expression(parsed_expression, from_bands)
+            except Exception as ex:
+                self.logger.warning(f"Unable to derive band {band_name}: {str(ex)}")
+                continue
             dims = []
             # the dimensions of the derived band should match the longest dimensions of the input bands
             for band in from_bands:
                 if len(self.input_ds[band].dims) > len(dims):
                     dims = self.input_ds[band].dims
-            self.input_ds[mask_name] = xr.DataArray(arr,dims=dims)
+            self.input_ds[band_name] = xr.DataArray(arr,dims=dims)
 
     def evaluate_expression(self, parsed_expression, from_bands_accumulator):
         if "name" in parsed_expression:
-            from_bands_accumulator.append(parsed_expression["name"])
-            return self.input_ds[parsed_expression["name"]].data
+            source_band = parsed_expression["name"]
+            if source_band in self.input_ds:
+                from_bands_accumulator.append(source_band)
+                return self.input_ds[source_band].data
+            else:
+                raise Exception(f"Expression references unknown band: {source_band}")
         elif "operator" in parsed_expression:
             operator = parsed_expression["operator"]
             args = parsed_expression["args"]
@@ -410,7 +443,7 @@ class HTMLGenerator:
             try:
                 d[key] = template.render(**variables)
             except Exception as ex:
-                self.logger.error(f"Unable to render info for key: {str(ex)}")
+                self.logger.warning(f"Unable to render info for key: {str(ex)}")
         return d
 
     def run(self):
@@ -438,7 +471,7 @@ class HTMLGenerator:
             for layer_definition in self.layer_definitions:
                 err = layer_definition.check(self.input_ds)
                 if err:
-                    self.logger.error(f"Unable to add layer {layer_definition.layer_name}: {err}")
+                    self.logger.warning(f"Unable to add layer {layer_definition.layer_name}: {err}")
                     remove_layers.append(layer_definition)
 
             for layer_definition in remove_layers:
@@ -508,67 +541,7 @@ class HTMLGenerator:
 
         # build timeseries if any are defined
         if self.timeseries_definitions:
-
-            folder = os.path.join(self.output_folder, "timeseries")
-            os.makedirs(folder, exist_ok=True)
-            for (timeseries_name, timeseries_spec, timeseries_detail) in self.timeseries_definitions:
-                csv_path = os.path.join(folder, timeseries_name + ".csv")
-                source_masks = timeseries_spec.get("masks", [])
-                variables = timeseries_spec["variables"]
-                with open(csv_path,"w") as f:
-                    writer = csv.writer(f)
-                    headers = ["datetime"]
-                    if source_masks:
-                        for source_mask in source_masks:
-                            for variable in variables:
-                                headers.append(f"{source_mask}_{variable.replace(':','_')}")
-                    else:
-                        headers += variables
-
-                    writer.writerow(headers)
-                    n = len(self.input_ds[self.time_coordinate])
-
-                    for i in range(n):
-                        timestamp = str(self.input_ds[self.time_coordinate].data[i])[
-                                    :10] if self.time_coordinate else None
-
-                        data_slice = self.input_ds.isel(**{self.case_dimension:i})
-
-                        dt = datetime.datetime.strptime(timestamp, "%Y-%m-%d")
-                        row = [dt.strftime("%Y-%m-%d")]
-
-                        if source_masks:
-                            # build a timseries for each combination of mask and variable
-                            for source_mask in source_masks:
-                                mask_slice = self.input_ds[source_mask].squeeze()
-                                if self.case_dimension in mask_slice.dims:
-                                    mask_slice = mask_slice.isel(**{self.case_dimension:i})
-
-                                for variable in variables:
-                                    variable_components = variable.split(":")
-                                    variable_name = variable_components[0]
-                                    if len(variable_components)==2:
-                                        aggregation_fn = variable_components[1]
-                                    else:
-                                        aggregation_fn = "mean"
-                                    values = xr.where(mask_slice, data_slice[variable_name], np.nan)
-                                    if aggregation_fn == "mean":
-                                        value = values.mean(skipna=True).item()
-                                    elif aggregation_fn == "min":
-                                        value = values.min(skipna=True).item()
-                                    elif aggregation_fn == "max":
-                                        value = values.max(skipna=True).item()
-                                    else:
-                                        raise Exception(f"Cannot apply unrecognised aggregation function {aggregation_fn}")
-                                    row.append(str(value))
-                        else:
-                            for variable in timeseries_spec["variables"]:
-                                value = data_slice[variable].item()
-                                row.append(str(value))
-
-                        writer.writerow(row)
-
-                timeseries_detail["csv_url"] = os.path.join("timeseries", timeseries_name + ".csv")
+            self.build_timeseries_csv()
 
         builder = Html5Builder(language="en")
 
@@ -650,6 +623,9 @@ class HTMLGenerator:
                     scene_dict["y_max"] = y_max
 
             scenes["index"].append(scene_dict)
+
+        scenes["data_width"] = self.data_width
+        scenes["data_height"] = self.data_height
 
         with open(os.path.join(self.output_folder, "scenes.json"), "w") as f:
             f.write(json.dumps(scenes,indent=4))
@@ -769,8 +745,9 @@ class HTMLGenerator:
         tf.add_header_row(button_cells)
 
         current_group_label = ""
+        row = 0
         for (index, timestamp, layer_sources, _, ds) in self.layer_images:
-            cells = [self.generate_index_cell(index)]
+            cells = [self.generate_index_cell(row)]
             if self.info:
                 cells += [self.generate_info_table(index,ds)]
             if self.labels:
@@ -781,11 +758,12 @@ class HTMLGenerator:
                                     w=self.grid_image_width if self.grid_image_width else image_width)
                 cells.append(img)
             tf.add_row(cells)
+            row += 1
 
         grid_container_div.add_fragment(tf)
 
     def generate_index_cell(self, index):
-        return ElementFragment("button",attrs={"id":f"open_{index}_btn"}).add_text("Open: "+str(index))
+        return ElementFragment("button",attrs={"id":f"open_{index}_btn"}).add_text("Open: "+str(index+1))
 
     def build_overlay_view(self, overlay_container_div, builder, image_width, image_height):
 
@@ -883,19 +861,19 @@ class HTMLGenerator:
             col2.add_element("input", {"type": "range", "id": opacity_control_id})
 
             if layer_definition.has_legend():
-                has_data = isinstance(layer_definition,LayerSingleBand) and layer_definition.save_data()
+                layer_has_data = isinstance(layer_definition,LayerSingleBand) and layer_definition.save_data()
                 legend_src = self.layer_legends[layer_definition.layer_name]
-                if has_data:
+                if layer_has_data:
                     col3.add_element("input",{"type":"number","value":str(layer_definition.vmin),"id":layer_definition.layer_name+"_min_input"})
                 else:
                     col3.add_element("span").add_text(str(layer_definition.vmin))
                 col4.add_element("img", {"src": legend_src, "class": "legend", "id":layer_definition.layer_name+"_legend_img"})
-                if has_data:
+                if layer_has_data:
                     col5.add_element("input", {"type": "number", "value": str(layer_definition.vmax),
                                                "id": layer_definition.layer_name + "_max_input"})
                 else:
                     col5.add_element("span").add_text(str(layer_definition.vmax))
-                if has_data:
+                if layer_has_data:
                     selector_control_id = layer_definition.layer_name+"_camp_selector"
                     cmap_selector = col6.add_element("select",{"id":selector_control_id})
                     for cmap in self.all_cmaps:
@@ -949,6 +927,118 @@ class HTMLGenerator:
 
         overlay_container_div.add_element("div",{"id":"map"})
 
+    def build_timeseries_csv(self):
+        folder = os.path.join(self.output_folder, "timeseries")
+        os.makedirs(folder, exist_ok=True)
+
+        for (timeseries_name, timeseries_spec, timeseries_detail) in self.timeseries_definitions:
+            csv_path = os.path.join(folder, timeseries_name + ".csv")
+            source_masks = timeseries_spec.get("masks", [])
+            variables = timeseries_spec["variables"]
+            timeseries_type = timeseries_spec.get("type","timeseries")
+
+            data = []
+            n = len(self.input_ds[self.time_coordinate])
+
+            years = set()
+
+            for i in range(n):
+                timestamp = str(self.input_ds[self.time_coordinate].data[i])[
+                            :10] if self.time_coordinate else None
+
+                data_slice = self.input_ds.isel(**{self.case_dimension: i})
+
+                dt = datetime.datetime.strptime(timestamp, "%Y-%m-%d")
+                years.add(dt.year)
+
+                rowdata = {"datetime": dt}
+
+                if source_masks:
+                    # build a timseries for each combination of mask and variable
+                    for source_mask in source_masks:
+                        mask_slice = self.input_ds[source_mask].squeeze()
+                        if self.case_dimension in mask_slice.dims:
+                            mask_slice = mask_slice.isel(**{self.case_dimension: i})
+
+                        for variable in variables:
+                            variable_components = variable.split(":")
+                            variable_name = variable_components[0]
+                            if len(variable_components) == 2:
+                                aggregation_fn = variable_components[1]
+                            else:
+                                aggregation_fn = "mean"
+                            values = xr.where(mask_slice, data_slice[variable_name], np.nan)
+                            if aggregation_fn == "mean":
+                                value = values.mean(skipna=True).item()
+                            elif aggregation_fn == "min":
+                                value = values.min(skipna=True).item()
+                            elif aggregation_fn == "max":
+                                value = values.max(skipna=True).item()
+                            elif aggregation_fn == "median":
+                                value = float(np.median(values.data))
+                            else:
+                                raise Exception(f"Cannot apply unrecognised aggregation function {aggregation_fn}")
+                            column = f"{source_mask}_{variable.replace(':', '_')}"
+                            rowdata[column] = value
+
+                else:
+                    for variable in variables:
+                        value = data_slice[variable].item()
+                        rowdata[variable] = value
+
+                data.append(rowdata)
+
+            years = sorted(list(years))
+
+            with open(csv_path, "w") as f:
+                writer = csv.writer(f)
+                variable_names = []
+                if source_masks:
+                    for source_mask in source_masks:
+                        for variable in variables:
+                            variable_names.append(f"{source_mask}_{variable.replace(':', '_')}")
+                else:
+                    variable_names = variables
+
+                if timeseries_type == "timeseries":
+                    headers = ["datetime"] + variable_names
+                    writer.writerow(headers)
+                    for rowdata in data:
+                        row = [rowdata["datetime"].strftime("%Y-%m-%d")]
+                        for header in headers[1:]:
+                            v = rowdata.get(header,"")
+                            if math.isnan(v):
+                                v = ""
+                            row.append(v)
+                        writer.writerow(row)
+                elif timeseries_type == "seasonal":
+                    headers = ["day"]+years
+                    writer.writerow(headers)
+
+                    if len(variable_names) != 1:
+                        raise Exception(f"Can only produce a seasonal plot for timeseries {timeseries_name} with 1 variable, got {len(variable_names)} variables")
+
+                    for day in range(1,367):
+                        values_by_year = {}
+                        for rowdata in data:
+                            dt = rowdata["datetime"]
+                            year = dt.year
+                            doy = dt.timetuple()[7]
+                            if doy == day:
+                                values_by_year[year] = rowdata[variable_names[0]]
+
+                        row = [day]
+                        for year in years:
+                            if year in values_by_year:
+                                v = values_by_year[year]
+                                if math.isnan(v):
+                                    v = ""
+                                row.append(v)
+                            else:
+                                row.append("")
+                        writer.writerow(row)
+
+            timeseries_detail["csv_url"] = os.path.join("timeseries", timeseries_name + ".csv")
 
     def build_timeseries_view(self, timeseries_container_div, builder):
         if self.layer_definitions:
@@ -956,13 +1046,18 @@ class HTMLGenerator:
 
         timeseries_container_div.add_element("span").add_text(self.title)
 
+        if self.netcdf_download_filename:
+            timeseries_container_div.add_element("span", {"class": "spacer"}).add_text("|")
+            timeseries_container_div.add_element("a", {"href": self.netcdf_download_filename,
+                                                 "download": self.netcdf_download_filename}).add_text(
+                "download netcdf4")
+
         timeseries_container_div.add_element("h2").add_text("timeseries")
 
         for (timeseries_name,timeseries_spec, timeseries_detail) in self.timeseries_definitions:
 
-            timeseries_title = timeseries_spec.get("title",timeseries_name)
-
-            timeseries_container_div.add_element("h3").add_text(timeseries_title)
+            timeseries_label = timeseries_spec.get("label",timeseries_name)
+            timeseries_container_div.add_element("h3").add_text(timeseries_label)
             timeseries_div_id = f"timeseries_{timeseries_name}"
             timeseries_container_div.add_element("div",{"id":timeseries_div_id, "class":"timeseries_chart"})
             timeseries_detail["div_id"] = timeseries_div_id

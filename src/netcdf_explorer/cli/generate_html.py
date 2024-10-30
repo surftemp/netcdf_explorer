@@ -42,7 +42,6 @@ def subset(ds, case_dimension, sample_count, sample_cases):
 
     if sample_count and sample_count < n:
         selected_indexes = np.random.choice(np.array(selected_indexes), sample_count, replace=False).tolist()
-
     if sample_cases or sample_count:
         ds = ds.isel(**{case_dimension:selected_indexes})
     return ds, selected_indexes
@@ -52,14 +51,13 @@ def main():
     parser.add_argument("--title", help="Set the title of the plot", required=True)
     parser.add_argument("--input-path", help="netcdf4 file or folder containing netcdf4 files to visualise",
                         required=True)
-    parser.add_argument("--download-data",
+    parser.add_argument("--download-data", action="store_true",
                         help="include a download link in the HTML, if a single input file was provided")
     parser.add_argument("--output-folder", help="folder to write html output", default="html_output")
     parser.add_argument("--config-path", help="JSON or YAML file specifying one or more layer specifications",
                         default="layers.json", required=True)
     parser.add_argument("--install-server-script", action="store_true",
                         help="Install a serve_html.py script")
-
     parser.add_argument("--sample-count", type=int, default=None,
                         help="randomly sample this many cases from each file for display")
     parser.add_argument("--file-count", type=int, default=None,
@@ -89,8 +87,7 @@ def main():
         sys.exit(-1)
 
     ds_list = []
-    filename_list = []
-    indices_list = []
+    index_list = []
 
     if os.path.isfile(args.input_path):
         input_paths = [args.input_path]
@@ -109,26 +106,21 @@ def main():
         if case_dimension:
             ds, indices = subset(ds, case_dimension, sample_count=args.sample_count, sample_cases=args.sample_cases)
             n = ds[case_dimension].shape[0]
-            if "x" in coordinates:
-                if case_dimension not in ds[coordinates["x"]].dims:
-                    ds[coordinates["x"]] = ds[coordinates["x"]].expand_dims({case_dimension:n},axis=0)
-            if "y" in coordinates:
-                if case_dimension not in ds[coordinates["y"]].dims:
-                    ds[coordinates["y"]] = ds[coordinates["y"]].expand_dims({case_dimension:n},axis=0)
+            if len(input_paths) > 1:
+                if "x" in coordinates:
+                    if case_dimension not in ds[coordinates["x"]].dims:
+                        ds[coordinates["x"]] = ds[coordinates["x"]].expand_dims({case_dimension:n},axis=0)
+                if "y" in coordinates:
+                    if case_dimension not in ds[coordinates["y"]].dims:
+                        ds[coordinates["y"]] = ds[coordinates["y"]].expand_dims({case_dimension:n},axis=0)
             for i in indices:
-                filename_list.append(input_path)
-                indices_list.append(i)
-        else:
-            filename_list.append(input_path)
-            indices_list.append(0)
+                index_list.append((input_path,i))
         ds_list.append(ds)
         if args.file_count is not None and file_count >= args.file_count:
             break
 
     if len(ds_list) > 1:
         input_ds = xr.concat(ds_list, dim=case_dimension)
-        input_ds["source_filenames"] = xr.DataArray(filename_list, dims=(case_dimension,))
-        input_ds["source_indices"] = xr.DataArray(indices_list, dims=(case_dimension,))
     else:
         input_ds = ds_list[0]
 
@@ -136,10 +128,9 @@ def main():
     if args.download_data and len(input_paths) == 1:
         download_filepath = input_paths[0]
 
-    g = HTMLGenerator(config, input_ds, os.path.abspath(args.output_folder), args.title,
-                                 sample_count=args.sample_count, sample_cases=args.sample_cases,
+    g = HTMLGenerator(config, input_ds, os.path.abspath(args.output_folder), title=args.title,
                                  download_from=download_filepath,
-                                 filter_controls=args.filter_controls)
+                                 filter_controls=args.filter_controls, index_list=index_list)
     g.run()
 
     if args.install_server_script:

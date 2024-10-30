@@ -68,19 +68,7 @@ class HtmlView {
         // record the last image url viewed in overlay mode for each layer
         this.overlay_urls = {};
 
-        if (this.overlay_container) {
-            this.lm = new LeafletMap('map',
-                async (y_frac, x_frac) => {
-                    this.handle_map_mouseover(y_frac, x_frac);
-                },
-                async (zoom) => {
-                    this.set_zoom(zoom);
-                }
-            );
-
-            this.zoom = 1;
-            this.handle_map_mouseover(null, null);
-        }
+        this.lm = null;
 
         this.timeseries_charts = null;
 
@@ -144,6 +132,19 @@ class HtmlView {
         let r = await fetch("scenes.json");
         this.scenes = await r.json();
 
+        if (this.overlay_container) {
+            this.lm = new LeafletMap('map', this.scenes.data_height, this.scenes.data_width,
+                async (y_frac, x_frac) => {
+                    this.handle_map_mouseover(y_frac, x_frac);
+                },
+                async (zoom) => {
+                    this.set_zoom(zoom);
+                }
+            );
+
+            this.zoom = 1;
+            this.handle_map_mouseover(null, null);
+        }
 
         if (this.download_labels_btn) {
             try {
@@ -157,6 +158,7 @@ class HtmlView {
         // initially, include all scenes in the index
         this.index = [];
         for (let idx = 0; idx < this.scenes.index.length; idx++) {
+            this.scenes.index[idx].original_index = idx + 1;
             this.index.push(this.scenes.index[idx]);
         }
 
@@ -181,6 +183,9 @@ class HtmlView {
     create_overlay_label_control_callback(label_group, label) {
         // create a callback to be called when a label is updated by an overlay label control
         return async () => {
+            if (this.index.length == 0) {
+                return; // all scenes filtered out, perhaps
+            }
             let index = this.index[this.current_index].pos;
             this.labels.values[label_group][index] = label;
             this.grid_label_controls[label_group][index][label].checked = true;
@@ -223,12 +228,12 @@ class HtmlView {
 
     create_open_callback(index) {
         // create a callback to open a particular scene in the overlay view
-        return (evt) => {
+        return async (evt) => {
             this.current_index = index;
             this.grid_container.style.display = "none";
             this.overlay_container.style.display = "block";
             this.update_time_range();
-            this.show();
+            await this.show();
         }
     }
 
@@ -246,17 +251,17 @@ class HtmlView {
         // bind to the controls in this page
 
 
-
-
         if (this.grid_view_button) {
             this.grid_view_button.addEventListener("click", (evt) => {
                 this.show_container(this.grid_container);
+                history.pushState({}, null, this.base_url);
             });
         }
 
         if (this.grid_view_button2) {
             this.grid_view_button2.addEventListener("click", (evt) => {
                 this.show_container(this.grid_container);
+                history.pushState({}, null, this.base_url);
             });
         }
 
@@ -267,48 +272,45 @@ class HtmlView {
         }
 
         if (this.timeseries_view_button) {
-            this.timeseries_view_button.addEventListener("click", (evt) => {
+            this.timeseries_view_button.addEventListener("click", async (evt) => {
+                history.pushState({}, null, this.base_url);
                 this.show_container(null);
                 if (this.timeseries_container) {
                     this.timeseries_container.style.display = "block";
-                    this.load_timeseries().then(() => {
-                    });
+                    await this.load_timeseries();
                 }
             });
         }
 
         if (this.next_button) {
-            this.next_button.addEventListener("click", (evt) => {
+            this.next_button.addEventListener("click", async (evt) => {
                 if (this.current_index < this.index.length - 1) {
                     this.current_index += 1;
                     this.update_time_range();
-                    this.show();
+                    await this.show();
                 }
             });
         }
 
         if (this.prev_button) {
-            this.prev_button.addEventListener("click", (evt) => {
+            this.prev_button.addEventListener("click", async (evt) => {
                 if (this.current_index > 0) {
                     this.current_index -= 1;
                     this.update_time_range();
-                    this.show();
+                    await this.show();
                 }
             });
         }
 
         if (this.time_range) {
-            this.time_range.addEventListener("input", (evt) => {
+            this.time_range.addEventListener("input", async (evt) => {
                 if (this.index.length) {
                     let fraction = Number.parseFloat(evt.target.value) / 100;
                     this.current_index = Math.round(fraction * (this.index.length - 1));
-                    this.show();
+                    await this.show();
                 }
             });
         }
-
-
-
 
         for (let month = 1; month <= 12; month += 1) {
             let cb_elt = document.getElementById("month" + month);
@@ -572,7 +574,7 @@ class HtmlView {
             this.update_time_range();
         }
 
-        this.show();
+        await this.show();
     }
 
     show_group_column(layer_name) {
@@ -650,7 +652,8 @@ class HtmlView {
         // update the time range slider to reflect the current index
         if (this.index.length) {
             this.time_range.value = String(100 * (this.current_index / (this.index.length - 1)));
-            history.pushState({}, null, this.base_url+"?index="+(this.current_index+1));
+            let original_index = this.index[this.current_index].original_index;
+            history.pushState({}, null, this.base_url+"?index="+original_index);
         } else {
             this.time_range.value = "50";
         }
@@ -672,7 +675,7 @@ class HtmlView {
 
     create_month_filter_callback(month) {
         // create a callback for when a month filter checkbox is checked/unchecked
-        return (evt) => {
+        return async (evt) => {
             if (!evt.target.checked) {
                 this.months_excluded[month] = true;
             } else {
@@ -680,7 +683,7 @@ class HtmlView {
             }
             this.update_filters();
             this.update_time_range();
-            this.show();
+            await this.show();
         }
     }
 
@@ -747,8 +750,30 @@ class HtmlView {
         return url;
     }
 
-    show() {
+    async show() {
         // called in the overlay view to show the currently selected scene
+
+        if (this.index.length == 0) {
+            // nothing to show, hide the imagery
+            this.lm.clear_layers();
+            let overlay_label = "0/0";
+            this.scene_label_elt.innerHTML = overlay_label;
+            if (this.terrain_view_button) {
+                this.terrain_view_button.disabled = true;
+            }
+            return;
+        } else {
+            if (this.terrain_view_button) {
+                this.terrain_view_button.disabled = false;
+            }
+        }
+
+        this.di = new DataImage("viridis");
+        let data_srcs = this.index[this.current_index].data_srcs;
+        for (let layer_name in data_srcs) {
+            this.di.register_layer(layer_name);
+            await this.di.load(layer_name, data_srcs[layer_name]);
+        }
 
         this.overlay_urls = {};
 
@@ -759,14 +784,7 @@ class HtmlView {
             let image_url = this.update_image(layer_name);
             this.overlay_urls[layer_name] = image_url;
         }
-        let data_srcs = this.index[this.current_index].data_srcs;
 
-        this.di = new DataImage("viridis");
-
-        for (let layer_name in data_srcs) {
-            this.di.register_layer(layer_name);
-            this.di.load(layer_name, data_srcs[layer_name]); // this is async
-        }
 
         if (this.info_content) {
             let info = this.index[this.current_index].info;

@@ -87,7 +87,9 @@ def save_image_discrete(arr,path,values):
 
 class LayerGroup:
 
-    def __init__(self,layer, converter, layer_name, layer_label, sublayers):
+    def __init__(self, layer, converter, layer_name, layer_label, sublayers):
+        self.layer = layer
+        self.converter = converter
         self.layer_name = layer_name
         self.layer_label = layer_label
         self.sublayers = sublayers
@@ -113,10 +115,18 @@ class LayerGroup:
         return self.sublayers[0].build_legend(path)
 
     def check(self, ds):
+        remove_layers = []
         for layer in self.sublayers:
             err = layer.check(ds)
             if err:
-                return err
+                self.converter.logger.warning(f"Unable to add layer {layer.layer_name}: {err}")
+                remove_layers.append(layer)
+
+        for layer in remove_layers:
+            self.sublayers.remove(layer)
+
+        if len(self.sublayers) == 0:
+            return "No valid layers in this group"
 
     def build(self,ds,path):
         for layer in self.sublayers:
@@ -318,6 +328,14 @@ class LayerWMS(LayerBase):
         self.cache = {}
         self.failed = set()
         self.scale = scale
+
+    def check(self, ds):
+        err = super().check(ds)
+        if err:
+            return err
+        if self.converter.case_dimension and self.converter.case_dimension in ds[self.converter.x_coordinate].dims \
+                or self.converter.case_dimension in ds[self.converter.y_coordinate].dims:
+            self.set_case_wise(True)
 
     def has_legend(self):
         return False

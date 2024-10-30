@@ -2,14 +2,19 @@ class TimeseriesChart {
 
     static all_charts = [];
 
-    constructor(element_id, csv_url, variable_names) {
+    constructor(element_id, csv_url, spec) {
+        this.type = spec.type || "timeseries";
         let div = document.getElementById(element_id);
-        this.g = new Dygraph(div, csv_url, {
-          legend: 'always',
+        let options = {
+            legend: 'always',
+            connectSeparatedPoints: true,
             zoomCallback: (minDate, maxDate, yRange) => {
-                this.handle_zoom_event(minDate, maxDate, yRange);
-              }
-        });
+                if (spec.type !== "seasonal") {
+                    this.handle_zoom_event(minDate, maxDate, yRange, this.type);
+                }
+            }
+        }
+        this.g = new Dygraph(div, csv_url, options);
         TimeseriesChart.all_charts.push(this);
     }
 
@@ -21,10 +26,10 @@ class TimeseriesChart {
         this.disable_zoom_event = false;
     }
 
-    handle_zoom_event(minDate, maxDate, yRange) {
+    handle_zoom_event(minDate, maxDate, yRange, type) {
         if (!this.disable_zoom_event) {
             TimeseriesChart.all_charts.forEach((chart) => {
-                if (chart !== this) {
+                if (chart !== this && chart.type === type) {
                     chart.set_zoom(minDate, maxDate);
                 }
             });

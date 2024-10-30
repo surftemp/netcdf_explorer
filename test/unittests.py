@@ -36,8 +36,7 @@ class Test(unittest.TestCase):
         output_folder = os.path.join(os.path.split(__file__)[0], "area_293_output_api")
         with open(layers_path) as f:
             config = json.loads(f.read())
-        gen = HTMLGenerator(config=config, input_ds=ds, output_folder=output_folder, title="area 293", sample_count=None, sample_cases=None,
-            download_from=path, filter_controls=False)
+        gen = HTMLGenerator(config=config, input_ds=ds, output_folder=output_folder, title="area 293", download_from=path, filter_controls=True)
         gen.run()
 
     def test_293_commandline(self):
