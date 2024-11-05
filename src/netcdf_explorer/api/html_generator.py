@@ -565,7 +565,7 @@ class HTMLGenerator:
             builder.head().add_element("script", {"type": "text/javascript", "src": "dependencies/babylon.js"})
             builder.head().add_element("script", {"type": "text/javascript", "src": "dependencies/babylonTerrain.js"})
 
-        root = builder.body().add_element("div")
+        root = builder.body().add_element("div", {"id":"root_element"})
 
         container_div = root.add_element("div")
 

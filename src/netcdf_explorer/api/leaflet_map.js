@@ -20,7 +20,7 @@ class LeafletMap {
             zoomSnap: 0.5,
             zoomDelta: 0.5,
             wheelPxPerZoomLevel: 500,
-            center: [1,-1], // why?
+            center: [1,-1*this.max_lon],
             zoom: 9,
             bounds: [
                 [this.min_lat,this.min_lon],

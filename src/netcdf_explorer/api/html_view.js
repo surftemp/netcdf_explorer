@@ -12,7 +12,10 @@ class HtmlView {
         this.labels = null;
         this.di = null; // the dataimage used in the overlay view
 
-        this.base_url = window.location.origin + window.location.pathname
+        this.base_url = window.location.origin + window.location.pathname;
+
+        this.root_element = document.getElementById("root_element");
+        this.spinner = null;
 
         // locate overlay controls and other elements
         this.time_range = document.getElementById("time_index");
@@ -95,6 +98,9 @@ class HtmlView {
                 }
             });
         }
+
+        this.overlay_updating = false;
+
     }
 
     handle_map_mouseover(y_frac, x_frac) {
@@ -303,7 +309,7 @@ class HtmlView {
         }
 
         if (this.time_range) {
-            this.time_range.addEventListener("input", async (evt) => {
+            this.time_range.addEventListener("change", async (evt) => {
                 if (this.index.length) {
                     let fraction = Number.parseFloat(evt.target.value) / 100;
                     this.current_index = Math.round(fraction * (this.index.length - 1));
@@ -473,7 +479,6 @@ class HtmlView {
                 for (let label_idx in this.labels.schema[label_group]) {
                     let label_value = this.labels.schema[label_group][label_idx];
                     let control_id = this.get_label_control_id(label_group, label_value, null);
-                    console.log(control_id);
                     let control = document.getElementById(control_id);
                     control.checked = false;
                     this.overlay_label_controls[label_group][label_value] = control;
@@ -750,7 +755,30 @@ class HtmlView {
         return url;
     }
 
+    open_spinner() {
+        if (!this.spinner) {
+            this.spinner = document.createElement("div");
+            this.spinner.setAttribute("class", "spinner");
+            this.root_element.appendChild(this.spinner);
+        }
+    }
+
+    close_spinner() {
+        if (this.spinner) {
+            this.root_element.removeChild(this.spinner);
+        }
+        this.spinner = null;
+    }
+
     async show() {
+
+        this.overlay_updating = true;
+        this.time_range.disabled = true;
+        this.next_button.disabled = true;
+        this.prev_button.disabled = true;
+
+        this.open_spinner();
+
         // called in the overlay view to show the currently selected scene
 
         if (this.index.length == 0) {
@@ -813,6 +841,14 @@ class HtmlView {
             }
             this.scene_label_elt.innerHTML = overlay_label;
         }
+
+        this.overlay_updating = false;
+
+        this.time_range.disabled = false;
+        this.next_button.disabled = false;
+        this.prev_button.disabled = false;
+
+        this.close_spinner();
     }
 
     async get_overlay_combined_image() {

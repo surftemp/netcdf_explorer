@@ -40,7 +40,7 @@ class Test(unittest.TestCase):
         gen.run()
 
     def test_293_commandline(self):
-        cli_test = 'python -m netcdf_explorer.cli.generate_html --input-path area_293_min.nc --title "area_293" --output-folder area_293_output_cli --config-path example_layers.yaml --download-data area_293_min.nc'
+        cli_test = 'python -m netcdf_explorer.cli.generate_html --input-path area_293_min.nc --title "area_293" --output-folder area_293_output_cli --config-path example_layers.yaml --download-data'
         os.system(f'(cd {os.path.split(__file__)[0]}; {cli_test})')
 
     def test_bigplot(self):
