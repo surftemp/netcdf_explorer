@@ -49,19 +49,16 @@ def subset(ds, case_dimension, sample_count, sample_cases):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--title", help="Set the title of the plot", required=True)
-    parser.add_argument("--input-path", help="netcdf4 file or folder containing netcdf4 files to visualise",
-                        required=True)
+    parser.add_argument("--input-path", help="the netcdf4 file to visualise", required=True)
     parser.add_argument("--download-data", action="store_true",
-                        help="include a download link in the HTML, if a single input file was provided")
+                        help="include a download link in the HTML")
     parser.add_argument("--output-folder", help="folder to write html output", default="html_output")
     parser.add_argument("--config-path", help="JSON or YAML file specifying one or more layer specifications",
                         default="layers.json", required=True)
     parser.add_argument("--install-server-script", action="store_true",
                         help="Install a serve_html.py script")
     parser.add_argument("--sample-count", type=int, default=None,
-                        help="randomly sample this many cases from each file for display")
-    parser.add_argument("--file-count", type=int, default=None,
-                        help="randomly sample this many files for display")
+                        help="randomly sample this many cases for display"),
     parser.add_argument("--sample-cases", nargs="+", type=int, default=None,
                         help="display these sample cases (provide their indices, starting at 0)")
     parser.add_argument("--filter-controls", action="store_true",
@@ -79,56 +76,26 @@ def main():
             print("Error - config file should be json (.json) or yaml (.yml or .yaml) format")
             sys.exit(-1)
         dimensions = config.get("dimensions", {})
-        coordinates = config.get("coordinates", {})
         case_dimension = dimensions.get("case", None)
 
     if case_dimension is None:
         print("Error - please provide a case dimension")
         sys.exit(-1)
 
-    ds_list = []
     index_list = []
 
-    if os.path.isfile(args.input_path):
-        input_paths = [args.input_path]
-    elif os.path.isdir(args.input_path):
-        input_paths = list(map(lambda name: os.path.join(args.input_path, name),
-                               list(filter(lambda name: name.endswith(".nc"),os.listdir(args.input_path)))))
-    else:
-        print(f"Error - {args.input_path} is not a file or directory")
-        sys.exit(-1)
-
-    file_count = 0
-    for input_path in input_paths:
-        file_count += 1
-        print(f"[Reading {input_path} {file_count}/{len(input_paths)}]")
-        ds = xr.open_dataset(input_path)
-        if case_dimension:
-            ds, indices = subset(ds, case_dimension, sample_count=args.sample_count, sample_cases=args.sample_cases)
-            n = ds[case_dimension].shape[0]
-            if len(input_paths) > 1:
-                if "x" in coordinates:
-                    if case_dimension not in ds[coordinates["x"]].dims:
-                        ds[coordinates["x"]] = ds[coordinates["x"]].expand_dims({case_dimension:n},axis=0)
-                if "y" in coordinates:
-                    if case_dimension not in ds[coordinates["y"]].dims:
-                        ds[coordinates["y"]] = ds[coordinates["y"]].expand_dims({case_dimension:n},axis=0)
-            for i in indices:
-                index_list.append((input_path,i))
-        ds_list.append(ds)
-        if args.file_count is not None and file_count >= args.file_count:
-            break
-
-    if len(ds_list) > 1:
-        input_ds = xr.concat(ds_list, dim=case_dimension)
-    else:
-        input_ds = ds_list[0]
+    print(f"Reading {args.input_path}")
+    ds = xr.open_dataset(args.input_path)
+    if case_dimension:
+        ds, indices = subset(ds, case_dimension, sample_count=args.sample_count, sample_cases=args.sample_cases)
+        for i in indices:
+            index_list.append((args.input_path,i))
 
     download_filepath = None
-    if args.download_data and len(input_paths) == 1:
-        download_filepath = input_paths[0]
+    if args.download_data:
+        download_filepath = args.input_path
 
-    g = HTMLGenerator(config, input_ds, os.path.abspath(args.output_folder), title=args.title,
+    g = HTMLGenerator(config, ds, os.path.abspath(args.output_folder), title=args.title,
                                  download_from=download_filepath,
                                  filter_controls=args.filter_controls, index_list=index_list)
     g.run()

@@ -78,7 +78,7 @@ layers:
     cmap: "rainbow"  # specify a colour map, known to matplotlib (see https://matplotlib.org/stable/users/explain/colors/colormaps.html)
     data:
       label: "B10_ST: {value} K"
-      fixed": 2
+      fixed: 2
 
   REF:
     label: "Reflectance"

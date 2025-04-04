@@ -19,7 +19,7 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
-
+import math
 import os
 import shutil
 import requests
@@ -76,7 +76,7 @@ def save_image_discrete(arr,path,values):
         lookup[k] = ColoursToRGB.lookup(colour)+[255]
 
     def get_rgba(value):
-        key = int(value)
+        key = int(value) if not math.isnan(value) else -1
         if key not in lookup:
             return np.array([0,0,0,255])
         else:

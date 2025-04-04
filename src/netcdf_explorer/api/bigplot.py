@@ -101,7 +101,7 @@ class BigPlot:
             raise Exception(f"too many dimensions to plot {da.dims}")
 
         if self.flip:
-            da = da.isel(y=slice(None, None, -1))
+            da = da.isel(**{self.y:slice(None, None, -1)})
 
         h = da.shape[0]
         w = da.shape[1]
