@@ -39,7 +39,7 @@ def main():
     parser.add_argument("--legend-width", help="width of the legend in pixels", type=int, default=100)
     parser.add_argument("--legend-height", help="height of the legend in pixels", type=int, default=50)
     parser.add_argument("--title", help="A title for the plot")
-    parser.add_argument("--title-height", help="Height of title in pixels", default=50)
+    parser.add_argument("--title-height", help="Height of title in pixels", type=int, default=50)
     parser.add_argument("--font-path", help="Path to a true-type (.ttf) font to use (defaults to Roboto)", default=None)
     parser.add_argument("--output-path", help="Path to an output png or pdf file", default="uk_scores.pdf")
     parser.add_argument("--plot-width", help="Width of the main image plot, in pixels", type=int, default=1024)
