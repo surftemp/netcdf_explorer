@@ -88,6 +88,10 @@ Example usage - true colour plot of red, green and blue bands
 bigplot --input-path 20250129124009-NCEO-L1C-Landsat9-v2.0-fv01.0.nc --input-variable B4 B3 B2 --output-path test.png --title "Iceland Scene" --attrs acquisition_time platform
 ```
 
+<img width="532" height="624" alt="image" src="https://github.com/user-attachments/assets/48355014-2a7e-4b13-a935-a9844d05cd36" />
+
+
+
 command line options:
 
 | option           | description                                                                                 | example                                        |
