@@ -54,9 +54,9 @@ class CMap:
 
 class BigPlot:
 
-    def __init__(self, data_array, x, y, vmin, vmax, vformat, cmap_name, title,  output_path, legend_width=300, legend_height=50, plot_width=1800, flip=True, theight=50,
-                 selectors={}, iselectors={}, font_path=None, border=20):
-        self.data_array = data_array
+    def __init__(self, data_array, x, y, vmin, vmax, vformat, cmap_name, title,  output_path, subtexts=[], legend_width=300, legend_height=50, plot_width=1800, flip=True, theight=50,
+                 subtheight=25, selectors={}, iselectors={}, font_path=None, border=20):
+        self.data_array:xr.DataArray = data_array
         self.x = x
         self.y = y
         self.vmin = vmin
@@ -67,24 +67,27 @@ class BigPlot:
         self.legend_height = legend_height
         self.title = title
         self.output_path = output_path
+        self.subtexts = subtexts
         self.plot_width = plot_width
         self.flip = flip
         self.theight = theight
-        cmap_path = os.path.join(os.path.split(__file__)[0],"..","misc","cmaps",self.cmap_name+".json")
+        self.subtheight = subtheight
         self.cmap_colors = []
         self.cmap = None
         self.selectors = selectors
         self.iselectors = iselectors
         self.font_path = font_path if font_path else os.path.join(os.path.split(__file__)[0],"..","misc","Roboto-Black.ttf")
         self.border = border
-        with open(cmap_path) as f:
-            o = json.loads(f.read())
-            for rgb in o:
-                r = int(255*rgb[0])
-                g = int(255*rgb[1])
-                b = int(255*rgb[2])
-                self.cmap_colors.append(f"#{r:02X}{g:02X}{b:02X}")
-            self.cmap = CMap(o,self.vmin,self.vmax)
+        if "rgb" not in self.data_array.dims:
+            cmap_path = os.path.join(os.path.split(__file__)[0], "..", "misc", "cmaps", self.cmap_name + ".json")
+            with open(cmap_path) as f:
+                o = json.loads(f.read())
+                for rgb in o:
+                    r = int(255*rgb[0])
+                    g = int(255*rgb[1])
+                    b = int(255*rgb[2])
+                    self.cmap_colors.append(f"#{r:02X}{g:02X}{b:02X}")
+                self.cmap = CMap(o,self.vmin,self.vmax)
 
     def run(self):
         da = self.data_array
@@ -97,27 +100,47 @@ class BigPlot:
 
         da = da.squeeze()
 
-        if len(da.shape) != 2:
+        if len(da.shape) > 3:
             raise Exception(f"too many dimensions to plot {da.dims}")
+        if len(da.shape) < 2:
+            raise Exception(f"too few dimensions to plot {da.dims}")
 
         if self.flip:
             da = da.isel(**{self.y:slice(None, None, -1)})
 
-        h = da.shape[0]
-        w = da.shape[1]
+        h = da.shape[da.dims.index(self.y)]
+        w = da.shape[da.dims.index(self.x)]
 
         plot_height = int(self.plot_width*(h/w))
         cvs = dsh.Canvas(plot_width=self.plot_width, plot_height=plot_height,
                     x_range=(float(da[self.x].min()), float(da[self.x].max())),
                     y_range=(float(da[self.y].min()), float(da[self.y].max())))
 
-        agg = cvs.raster(da.squeeze(), agg=rd.first, interpolate='linear')
+        if len(da.shape) == 2:
+            agg = cvs.raster(da.squeeze(), agg=rd.first, interpolate='linear')
 
-        shaded = tf.shade(agg, cmap=self.cmap_colors,
-                      how="linear",
-                      span=(self.vmin, self.vmax))
+            shaded = tf.shade(agg, cmap=self.cmap_colors,
+                          how="linear",
+                          span=(self.vmin, self.vmax))
 
-        p = shaded.to_pil()
+            p = shaded.to_pil()
+        else:
+            agg = cvs.raster(da)
+            alist = []
+            a = None
+            for cindex in range(0,3):
+                arr = agg[cindex,:,:].squeeze().data
+                if a is None:
+                    a = (~np.isnan(arr)*255).astype(np.uint8)
+                    print(a)
+                minv = np.nanmin(arr)
+                maxv = np.nanmax(arr)
+                v = (arr - minv) / (maxv - minv)
+                v = np.sqrt(v)
+                alist.append((255 * v).astype(np.uint8))
+            alist.append(a)
+            arr = np.stack(alist, axis=-1)
+            p = Image.fromarray(arr, mode="RGBA")
 
         font = ImageFont.truetype(self.font_path, size=self.theight)
         spacing = self.theight
@@ -126,12 +149,13 @@ class BigPlot:
         combined_height = self.border
         if self.title:
             combined_height += self.theight+spacing
+        combined_height += len(self.subtexts)*int(self.subtheight*1.5)
         if self.legend_height:
             combined_height += self.legend_height+spacing
         combined_height += plot_height+self.border
         combined_width = 2*self.border+self.plot_width
 
-        combined = Image.new('RGB', (combined_width, combined_height), "white")
+        combined = Image.new('RGBA', (combined_width, combined_height), "white")
 
         y = self.border
         draw = ImageDraw.Draw(combined)
@@ -139,6 +163,13 @@ class BigPlot:
         if self.title:
             draw.text((round(self.border+self.plot_width * 0.5),y), self.title, fill=(0, 0, 0), font=font, anchor="ma")
             y += self.theight+spacing
+
+        if self.subtexts:
+            subfont = ImageFont.truetype(self.font_path, size=self.subtheight)
+            for subtext in self.subtexts:
+                draw.text((round(self.border + self.plot_width * 0.5), y), subtext, fill=(0, 0, 0), font=subfont,
+                      anchor="ma")
+                y += int(self.subtheight*1.5)
 
         if self.legend_height:
             lp = self.create_legend_image()
@@ -150,7 +181,7 @@ class BigPlot:
             draw.text((round(combined_width * 0.5 + self.legend_width * 0.5) + 20, y), max_label, fill=(0,0,0), font=font, anchor="lt")
             y += self.legend_height+spacing
 
-        combined.paste(p, (spacing, y))
+        combined.paste(p, (self.border, y))
 
         with open(self.output_path, "wb") as f:
             if self.output_path.endswith(".png"):

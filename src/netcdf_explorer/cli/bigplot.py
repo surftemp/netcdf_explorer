@@ -25,7 +25,7 @@ def main():
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("--input-path", help="path to netcdf input file", required=True)
-    parser.add_argument("--input-variable", help="name of variable to plot", required=True)
+    parser.add_argument("--input-variable", help="name of variable(s) to plot.  Supply either one variable or three variables (red,green,blue)", nargs="+", required=True)
     parser.add_argument("--x", help="name of x dimension", default="x")
     parser.add_argument("--y", help="name of y dimension", default="y")
     parser.add_argument("--selector", nargs=3, help="provide a coordinate selector", metavar=("coordinate","min","max"), action="append")
@@ -40,6 +40,8 @@ def main():
     parser.add_argument("--legend-height", help="height of the legend in pixels", type=int, default=50)
     parser.add_argument("--title", help="A title for the plot")
     parser.add_argument("--title-height", help="Height of title in pixels", type=int, default=50)
+    parser.add_argument("--attrs", help="Display these attributes from the file under the title", nargs="+", default=[])
+    parser.add_argument("--attr-height", help="Height of attribute text", type=int, default=25)
     parser.add_argument("--font-path", help="Path to a true-type (.ttf) font to use (defaults to Roboto)", default=None)
     parser.add_argument("--output-path", help="Path to an output png or pdf file", default="uk_scores.pdf")
     parser.add_argument("--plot-width", help="Width of the main image plot, in pixels", type=int, default=1024)
@@ -59,13 +61,25 @@ def main():
 
     ds = xr.open_dataset(args.input_path)
 
-    da = ds[args.input_variable]
+    if len(args.input_variable) > 1:
+        if len(args.input_variable) == 3:
+            da = xr.concat([ds[args.input_variable[0]],ds[args.input_variable[1]],ds[args.input_variable[2]]],dim="rgb")
+            args.legend_height = 0 # this will turn off the legend
+        else:
+            print("Please specify either 1 or 3 input variables")
+    else:
+        da = ds[args.input_variable[0]]
+
+    subtexts = []
+    for attr in args.attrs:
+        if attr in ds.attrs:
+            subtexts.append(f"{attr}: {ds.attrs[attr]}")
 
     bp = BigPlot(data_array=da,
             x=args.x, y=args.y, vmin=args.vmin, vmax=args.vmax,vformat=args.vformat,
             cmap_name=args.cmap,
             legend_width=args.legend_width, legend_height=args.legend_height,
-            title=args.title,theight=args.title_height, output_path=args.output_path, plot_width=args.plot_width, flip=args.flip,
+            title=args.title, subtexts=subtexts, theight=args.title_height, subtheight=args.attr_height, output_path=args.output_path, plot_width=args.plot_width, flip=args.flip,
             selectors=selectors, iselectors=iselectors, font_path=args.font_path)
     bp.run()
 
