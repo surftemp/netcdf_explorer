@@ -1,7 +1,8 @@
 # netcdf_explorer
 
-Generate static HTML and images for visualising array data read from a netcdf4 file
+Tools for generating static HTML and images for visualising array data read from a netcdf4 file.
 
+## Screenshots
 
 * `generate_html`: overlay view
   
@@ -10,6 +11,10 @@ Generate static HTML and images for visualising array data read from a netcdf4 f
 * `generate_html`: grid view
   
 ![image](https://github.com/user-attachments/assets/b6a408dc-54d4-479f-9bd8-0f50b2326c89)
+
+* `bigplot`: static RGB image
+
+![image](https://github.com/user-attachments/assets/48355014-2a7e-4b13-a935-a9844d05cd36)
 
 ## Installation
 
@@ -70,10 +75,9 @@ This [commented example configuration file](test/example_layers.yaml) should exp
 Use `bigplot` to generate potentially large image files as png or pdf files
 
 ```
-usage: bigplot [-h] --input-path INPUT_PATH --input-variable INPUT_VARIABLE [INPUT_VARIABLE ...] [--x X] [--y Y] [--selector coordinate min max] [--iselector dimension min max] [--flip] [--vmin VMIN]
-               [--vmax VMAX] [--vformat VFORMAT] [--cmap CMAP] [--legend-width LEGEND_WIDTH] [--legend-height LEGEND_HEIGHT] [--title TITLE] [--title-height TITLE_HEIGHT] [--attrs ATTRS [ATTRS ...]]
-               [--attr-height ATTR_HEIGHT] [--font-path FONT_PATH] [--output-path OUTPUT_PATH] [--plot-width PLOT_WIDTH]
-
+usage: bigplot [-h] --input-path INPUT_PATH [INPUT_PATH ...] --input-variable INPUT_VARIABLE [INPUT_VARIABLE ...] [--x X] [--y Y] [--selector coordinate min max] [--iselector dimension min max] [--flip]
+               [--vmin VMIN] [--vmax VMAX] [--vformat VFORMAT] [--cmap CMAP] [--legend-width LEGEND_WIDTH] [--legend-height LEGEND_HEIGHT] [--title TITLE] [--title-height TITLE_HEIGHT]
+               [--attrs ATTRS [ATTRS ...]] [--attr-height ATTR_HEIGHT] [--font-path FONT_PATH] [--output-path OUTPUT_PATH] [--output-filetype OUTPUT_FILETYPE] [--plot-width PLOT_WIDTH] [--border BORDER]
 ```
 
 Example usage - plot a single variable:
@@ -88,35 +92,36 @@ Example usage - true colour plot of red, green and blue bands
 bigplot --input-path 20250129124009-NCEO-L1C-Landsat9-v2.0-fv01.0.nc --input-variable B4 B3 B2 --output-path test.png --title "Iceland Scene" --attrs acquisition_time platform
 ```
 
-<img width="532" height="624" alt="image" src="https://github.com/user-attachments/assets/48355014-2a7e-4b13-a935-a9844d05cd36" />
+### Command line options:
 
+| option            | description                                                                                 | example                                         | default |
+|-------------------|---------------------------------------------------------------------------------------------|-------------------------------------------------|---------|
+| --input-path      | path to one or more netcdf input file(s) may contain wildcards                              | --input-path *.nc                               |         |
+ | --input-variable  | name of variable(s) to plot. Supply either one variable or three variables (red,green,blue) | --input-variable V3                             |         | 
+ | --output-path     | Path to an output png or pdf file or an output folder                                       | --output-path ./plots                           | .       |
+ | --plot-width      | Width of the main image plot, in pixels                                                     | --plot-width 500                                | 1024    |
+ | --x               | name of x dimension if not "x"                                                              | --x lon                                         | x       |
+ | --y               | name of y dimension if not "y"                                                              | --y lat                                         | y       |                                                                     
+ | --selector        | provide a coordinate selector in the format <coordinate> <min> <max> to plot a sub-array    | --selector lat 40 41 --selector lon 20 21       |         |
+ | --iselector       | provide a dimension selector in the format <dimension> <min> <max> to plot a sub-array      | --iselector x 3000 4000 --iselector y 2500 3500 |         |
+ | --flip            | whether to flip the image upside down                                                       |                                                 |         |
+ | --vmin            | minimum input variable value to use in colour scale                                         | --vmin 0                                        | 0       |
+ | --vmax            | maximum input variable value to use in colour scale                                         | --vmax 1                                        | 1       |
+ | --vformat         | format to use when printing values                                                          | --vformat "%0.1f"                               | %0.0f   |
+ | --cmap            | colour scale to use, should be the name of a matplotlib color map                           | --cmap viridis                                  | turbo   |
+ | --legend-width    | set the width of the legend in pixels                                                       | --legend-width 300                              | 200     |
+ | --legend-height   | set the height of the legend in pixels                                                      | --legend-height 50                              | 30      |                             
+ | --title           | Set a title for the plot                                                                    | --title "My Plot"                               |         |
+ | --title-height    | Set the height of title text in pixels                                                      | --title-height 40                               | 50      | 
+ | --attrs           | Specify one or more attributes to display under the title                                   | --attrs platform sensor                         |         |
+ | --attr-height     | Height of attribute text                                                                    | --attr-height 20                                | 25      |
+ | --font-path       | Path to a true-type (.ttf) font to use (defaults to Roboto)                                 | --font-path myfont.ttf                          |         |
+ | --output-filetype | output filetype (pdf or png)                                                                | --output-filetype pdf                           | png     |
+ | --border          | Width of border around edge of the plot, in pixels                                          | --border 40                                     |         |
 
+### Notes:
 
-command line options:
-
-| option           | description                                                                                 | example                                        |
-|------------------|---------------------------------------------------------------------------------------------|------------------------------------------------|
-| --input-path     | path to netcdf input file                                                                   | --input-path test_data.nc                      |
- | --input-variable | name of variable(s) to plot. Supply either one variable or three variables (red,green,blue) | --input-variable V3                            |
- | --x              | name of x dimension if not "x"                                                               | --x lon                                        |
- | --y              | name of y dimension if not "y" | --y lat                                        |                                                                      
- | --selector       | provide a coordinate selector in the format <coordinate> <min> <max> | --selector lat 40 41 --selector lon 20 21      |
- | --iselector      | provide a dimension selector in the format <dimension> <min> <max>  | --iselector x 3000 4000 -iselector y 2500 3500 |
- | --flip           |          whether to flip the image upside down |                                                |
- | --vmin           |          minimum input variable value to use in colour scale | --vmin 0                                       |
- | --vmax           |           maximum input variable value to use in colour scale | --vmax 1                                       |
- | --vformat        |     format to use when printing values | --vformat "%0.1f"                              |
- | --cmap           |           colour scale to use, should be the name of a matplotlib color map | --cmap viridis                                 |
- | --legend-width |  set the width of the legend in pixels | --legend-width 300                             |
- | --legend-height | set the height of the legend in pixels | --legend-height 50                             |                              
- | --title | Set a title for the plot | --title "My Plot"                              |
- | --title-height | Set the height of title text in pixels | --title-height 40                              |
- | --attrs | Specify one or more attributes to display under the title | --attrs platform sensor                        |
- |  --attr-height | Height of attribute text | --attr-height 20                               |
- | --font-path | Path to a true-type (.ttf) font to use (defaults to Roboto) | --font-path myfont.ttf                         |
- | --output-path | Path to an output png or pdf file | --output-path output.pdf                       | 
- | --plot-width | Width of the main image plot, in pixels | --plot-width 500                               |
-
+If three variables are supplied to the `--input-variable` option to provide the R, G and B colours, the options `--cmap`, `--vmin`, `--vmax`, `--vformat`, `--legend-width`, `--legend-height`, 
 
 ## Acknowledgements
 

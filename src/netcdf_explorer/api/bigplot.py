@@ -23,7 +23,7 @@ import os
 import datashader as dsh
 import datashader.transfer_functions as tf
 from datashader import reductions as rd
-
+import logging
 import json
 import math
 from PIL import Image, ImageFont, ImageDraw
@@ -56,6 +56,7 @@ class BigPlot:
 
     def __init__(self, data_array, x, y, vmin, vmax, vformat, cmap_name, title,  output_path, subtexts=[], legend_width=300, legend_height=50, plot_width=1800, flip=True, theight=50,
                  subtheight=25, selectors={}, iselectors={}, font_path=None, border=20):
+        self.logger = logging.getLogger("BigPlot")
         self.data_array:xr.DataArray = data_array
         self.x = x
         self.y = y
@@ -96,14 +97,16 @@ class BigPlot:
             da = da.sel(**self.selectors)
 
         if self.iselectors:
-            da = da.sel(**self.iselectors)
+            da = da.isel(**self.iselectors)
 
         da = da.squeeze()
 
         if len(da.shape) > 3:
-            raise Exception(f"too many dimensions to plot {da.dims}")
+            self.logger.error(f"too many dimensions to plot {da.dims}")
+            return
         if len(da.shape) < 2:
-            raise Exception(f"too few dimensions to plot {da.dims}")
+            self.logger.error(f"too few dimensions to plot {da.dims}")
+            return
 
         if self.flip:
             da = da.isel(**{self.y:slice(None, None, -1)})
@@ -117,12 +120,12 @@ class BigPlot:
                     y_range=(float(da[self.y].min()), float(da[self.y].max())))
 
         if len(da.shape) == 2:
+            da = xr.where(da < self.vmin, np.nan, da)
+            da = xr.where(da > self.vmax, np.nan, da)
             agg = cvs.raster(da.squeeze(), agg=rd.first, interpolate='linear')
-
             shaded = tf.shade(agg, cmap=self.cmap_colors,
                           how="linear",
                           span=(self.vmin, self.vmax))
-
             p = shaded.to_pil()
         else:
             agg = cvs.raster(da)
@@ -130,13 +133,15 @@ class BigPlot:
             a = None
             for cindex in range(0,3):
                 arr = agg[cindex,:,:].squeeze().data
+                m = (~np.isnan(arr) * 255).astype(np.uint8)
                 if a is None:
-                    a = (~np.isnan(arr)*255).astype(np.uint8)
-                    print(a)
+                    a = m
+                else:
+                    a = np.minimum(a,m)
                 minv = np.nanmin(arr)
                 maxv = np.nanmax(arr)
                 v = (arr - minv) / (maxv - minv)
-                v = np.sqrt(v)
+                v = np.sqrt(v) # juice up the contrast
                 alist.append((255 * v).astype(np.uint8))
             alist.append(a)
             arr = np.stack(alist, axis=-1)
@@ -164,22 +169,23 @@ class BigPlot:
             draw.text((round(self.border+self.plot_width * 0.5),y), self.title, fill=(0, 0, 0), font=font, anchor="ma")
             y += self.theight+spacing
 
+        if self.legend_height:
+            lp = self.create_legend_image()
+            legendfont = ImageFont.truetype(self.font_path, size=self.legend_height)
+            combined.paste(lp, (round(self.border+self.plot_width * 0.5 - self.legend_width * 0.5), y))
+            min_label = self.vformat % self.vmin
+            max_label = self.vformat % self.vmax
+
+            draw.text((round(combined_width * 0.5 - self.legend_width * 0.5) - 20, y), min_label, fill=(0,0,0), font=legendfont, anchor="rt")
+            draw.text((round(combined_width * 0.5 + self.legend_width * 0.5) + 20, y), max_label, fill=(0,0,0), font=legendfont, anchor="lt")
+            y += self.legend_height+spacing
+
         if self.subtexts:
             subfont = ImageFont.truetype(self.font_path, size=self.subtheight)
             for subtext in self.subtexts:
                 draw.text((round(self.border + self.plot_width * 0.5), y), subtext, fill=(0, 0, 0), font=subfont,
                       anchor="ma")
                 y += int(self.subtheight*1.5)
-
-        if self.legend_height:
-            lp = self.create_legend_image()
-            combined.paste(lp, (round(self.border+self.plot_width * 0.5 - self.legend_width * 0.5), y))
-            min_label = self.vformat % self.vmin
-            max_label = self.vformat % self.vmax
-
-            draw.text((round(combined_width * 0.5 - self.legend_width * 0.5) - 20, y), min_label, fill=(0,0,0), font=font, anchor="rt")
-            draw.text((round(combined_width * 0.5 + self.legend_width * 0.5) + 20, y), max_label, fill=(0,0,0), font=font, anchor="lt")
-            y += self.legend_height+spacing
 
         combined.paste(p, (self.border, y))
 
@@ -191,8 +197,11 @@ class BigPlot:
             elif self.output_path.endswith(".jpg") or self.output_path.endswith(".jpeg"):
                 format = "JPEG"
             else:
-                raise Exception("Unsupported output file format, currently only pdf and png are supported")
+                self.logger.error("Unsupported output file format, currently only pdf and png are supported")
+                return
             combined.save(f, format=format)
+
+        self.logger.info(f"Written {self.output_path}")
 
     def create_legend_image(self):
         lwidth = self.legend_width
