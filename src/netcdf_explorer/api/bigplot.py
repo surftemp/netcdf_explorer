@@ -55,7 +55,7 @@ class CMap:
 class BigPlot:
 
     def __init__(self, data_array, x, y, vmin, vmax, vformat, cmap_name, title,  output_path, subtexts=[], legend_width=300, legend_height=50, plot_width=1800, flip=True, theight=50,
-                 subtheight=25, selectors={}, iselectors={}, font_path=None, border=20):
+                 subtheight=25, selectors={}, iselectors={}, font_path=None, border=20,  cchart=None):
         self.data_array:xr.DataArray = data_array
         self.x = x
         self.y = y
@@ -74,6 +74,7 @@ class BigPlot:
         self.subtheight = subtheight
         self.cmap_colors = []
         self.cmap = None
+        self.cchart = cchart
         self.selectors = selectors
         self.iselectors = iselectors
         self.font_path = font_path if font_path else os.path.join(os.path.split(__file__)[0],"..","misc","Roboto-Black.ttf")
@@ -117,9 +118,13 @@ class BigPlot:
                     y_range=(float(da[self.y].min()), float(da[self.y].max())))
 
         if len(da.shape) == 2:
-            agg = cvs.raster(da.squeeze(), agg=rd.first, interpolate='linear')
 
-            shaded = tf.shade(agg, cmap=self.cmap_colors,
+            if self.cchart is not None:
+                agg = cvs.raster(da.squeeze(), agg=rd.mode, interpolate='nearest')
+                shaded = tf.shade(agg, color_key=self.cchart)
+            else:
+                agg = cvs.raster(da.squeeze(), agg=rd.first, interpolate='linear')
+                shaded = tf.shade(agg, cmap=self.cmap_colors,
                           how="linear",
                           span=(self.vmin, self.vmax))
 
@@ -132,7 +137,6 @@ class BigPlot:
                 arr = agg[cindex,:,:].squeeze().data
                 if a is None:
                     a = (~np.isnan(arr)*255).astype(np.uint8)
-                    print(a)
                 minv = np.nanmin(arr)
                 maxv = np.nanmax(arr)
                 v = (arr - minv) / (maxv - minv)

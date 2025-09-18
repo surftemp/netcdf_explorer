@@ -18,6 +18,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 import xarray as xr
+import json
 
 from netcdf_explorer.api.bigplot import BigPlot
 
@@ -36,6 +37,7 @@ def main():
     parser.add_argument("--vmax", type=float, help="maximum input variable value to use in colour scale", default=305)
     parser.add_argument("--vformat", help="format to use when printing values", default="%0.0f")
     parser.add_argument("--cmap", help="colour scale to use, should be the  name of a matplotlib color map", default="turbo")
+    parser.add_argument("--cchart", help="path to a JSON format {<value>:<colour>} colour chart mapping nominal values to colours, overrides --cmap if specified", default=None)
     parser.add_argument("--legend-width", help="width of the legend in pixels", type=int, default=100)
     parser.add_argument("--legend-height", help="height of the legend in pixels", type=int, default=50)
     parser.add_argument("--title", help="A title for the plot")
@@ -75,10 +77,22 @@ def main():
         if attr in ds.attrs:
             subtexts.append(f"{attr}: {ds.attrs[attr]}")
 
+    legend_width = args.legend_width
+    legend_height = args.legend_height
+
+    cchart=None
+    if args.cchart is not None:
+        # cchart defines a nominal mapping from values to colours
+        with open(args.cchart) as f:
+            input_cchart = json.loads(f.read())
+            # input is JSON format, need to convert keys from strings to floats
+            cchart = {float(key): value for key, value in input_cchart.items()}
+            legend_height = 0 # switch off legend for a nomimal colour mapping
+
     bp = BigPlot(data_array=da,
             x=args.x, y=args.y, vmin=args.vmin, vmax=args.vmax,vformat=args.vformat,
-            cmap_name=args.cmap,
-            legend_width=args.legend_width, legend_height=args.legend_height,
+            cmap_name=args.cmap, cchart=cchart,
+            legend_width=legend_width, legend_height=legend_height,
             title=args.title, subtexts=subtexts, theight=args.title_height, subtheight=args.attr_height, output_path=args.output_path, plot_width=args.plot_width, flip=args.flip,
             selectors=selectors, iselectors=iselectors, font_path=args.font_path)
     bp.run()

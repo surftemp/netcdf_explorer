@@ -2,7 +2,6 @@
 
 Generate static HTML and images for visualising array data read from a netcdf4 file
 
-
 * `generate_html`: overlay view
   
 ![image](https://github.com/user-attachments/assets/7da5100e-f15c-4d76-8d07-b920752c5ec2)
@@ -92,31 +91,51 @@ bigplot --input-path 20250129124009-NCEO-L1C-Landsat9-v2.0-fv01.0.nc --input-var
 
 
 
-command line options:
+## General Command Line Options:
 
-| option           | description                                                                                 | example                                        |
-|------------------|---------------------------------------------------------------------------------------------|------------------------------------------------|
-| --input-path     | path to netcdf input file                                                                   | --input-path test_data.nc                      |
- | --input-variable | name of variable(s) to plot. Supply either one variable or three variables (red,green,blue) | --input-variable V3                            |
- | --x              | name of x dimension if not "x"                                                               | --x lon                                        |
- | --y              | name of y dimension if not "y" | --y lat                                        |                                                                      
- | --selector       | provide a coordinate selector in the format <coordinate> <min> <max> | --selector lat 40 41 --selector lon 20 21      |
- | --iselector      | provide a dimension selector in the format <dimension> <min> <max>  | --iselector x 3000 4000 -iselector y 2500 3500 |
- | --flip           |          whether to flip the image upside down |                                                |
- | --vmin           |          minimum input variable value to use in colour scale | --vmin 0                                       |
- | --vmax           |           maximum input variable value to use in colour scale | --vmax 1                                       |
- | --vformat        |     format to use when printing values | --vformat "%0.1f"                              |
- | --cmap           |           colour scale to use, should be the name of a matplotlib color map | --cmap viridis                                 |
- | --legend-width |  set the width of the legend in pixels | --legend-width 300                             |
- | --legend-height | set the height of the legend in pixels | --legend-height 50                             |                              
- | --title | Set a title for the plot | --title "My Plot"                              |
- | --title-height | Set the height of title text in pixels | --title-height 40                              |
- | --attrs | Specify one or more attributes to display under the title | --attrs platform sensor                        |
- |  --attr-height | Height of attribute text | --attr-height 20                               |
- | --font-path | Path to a true-type (.ttf) font to use (defaults to Roboto) | --font-path myfont.ttf                         |
- | --output-path | Path to an output png or pdf file | --output-path output.pdf                       | 
- | --plot-width | Width of the main image plot, in pixels | --plot-width 500                               |
+| option           | description                                                                                                            | example                                        |
+|------------------|------------------------------------------------------------------------------------------------------------------------|------------------------------------------------|
+| --input-path     | path to netcdf input file                                                                                              | --input-path test_data.nc                      |
+| --input-variable | name of variable(s) to plot. Supply either one variable or three variables (red,green,blue)                            | --input-variable V3                            |
+| --x              | name of x dimension if not "x"                                                                                         | --x lon                                        |
+| --y              | name of y dimension if not "y"                                                                                         | --y lat                                        |                                                                      
+| --selector       | provide a coordinate selector in the format <coordinate> <min> <max>                                                   | --selector lat 40 41 --selector lon 20 21      |
+| --iselector      | provide a dimension selector in the format <dimension> <min> <max>                                                     | --iselector x 3000 4000 -iselector y 2500 3500 |
+| --flip           | whether to flip the image upside down                                                                                  |                                                | 
+| --title          | Set a title for the plot                                                                                               | --title "My Plot"                              |
+| --title-height   | Set the height of title text in pixels                                                                                 | --title-height 40                              |
+| --attrs          | Specify one or more attributes to display under the title                                                              | --attrs platform sensor                        |
+| --attr-height    | Height of attribute text                                                                                               | --attr-height 20                               |
+| --font-path      | Path to a true-type (.ttf) font to use (defaults to Roboto)                                                            | --font-path myfont.ttf                         |
+| --output-path    | Path to an output png or pdf file                                                                                      | --output-path output.pdf                       | 
+| --plot-width     | Width of the main image plot, in pixels                                                                                | --plot-width 500                               |
 
+## Command Line Options for plotting continuous data from a single variable
+
+| option           | description                                                                                                            | example                                        |
+|------------------|------------------------------------------------------------------------------------------------------------------------|------------------------------------------------|
+| --vmin           | minimum input variable value to use in colour scale                                                                    | --vmin 0                                       |
+| --vmax           | maximum input variable value to use in colour scale                                                                    | --vmax 1                                       |
+| --vformat        | format to use when printing values                                                                                     | --vformat "%0.1f"                              |
+| --cmap           | colour scale to use, should be the name of a matplotlib color map                                                      | --cmap viridis                                 |
+| --legend-width   | set the width of the legend in pixels                                                                                  | --legend-width 300                             |
+| --legend-height  | set the height of the legend in pixels                                                                                 | --legend-height 50                             |                         
+
+## Command Line Options for plotting discrete data from a single variable
+
+| option          | description                                                                                                            | example                                        |
+|-----------------|------------------------------------------------------------------------------------------------------------------------|------------------------------------------------|
+| --cchart <PATH> | path to a JSON format {<value>:<colour>} colour chart mapping nominal values to colours, overrides --cmap if specified | --chart colour_map.json                        |
+
+The format of the JSON `cchart` file is explained by the following example which maps value 0 to "red", 1 to "green" and 2 to "blue:
+
+```json
+{
+  "0": "#FF0000",
+  "1": "#00FF00",
+  "2": "#0000FF"
+}
+```
 
 ## Acknowledgements
 
@@ -127,6 +146,8 @@ This repo incorporates code from:
 | leafletjs | BSD 2-Clause License | [https://leafletjs.com/](https://leafletjs.com/)                                   |
 | babylonJS | Apache V2 License    | [https://github.com/BabylonJS/Babylon.js](https://github.com/BabylonJS/Babylon.js) |
 | dygraphs  | MIT License          | [https://github.com/danvk/dygraphs](https://github.com/danvk/dygraphs)             |
+
+
 
 
 
