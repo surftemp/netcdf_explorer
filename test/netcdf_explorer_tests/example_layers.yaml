@@ -30,7 +30,7 @@ labels:
   cloudy: [ "very", "somewhat", "a little", "none" ]
 
 derive_bands:
-  CLOUD_MASK: "not (QA_PIXEL & 8 == 0)",
+  CLOUD_MASK: "not (QA_PIXEL & 8 == 0)"
   EXTENDED_CLOUD_MASK: "not (QA_PIXEL & 30 == 0)"
 
 timeseries:
@@ -85,7 +85,7 @@ layers:
     type: "rgb"
     red_band: "B4"     # variable to use to provide red intensity
     green_band: "B3"   # variable to use to provide green intensity
-    blue_ban": "B2"    # variable to use to provide blue intensity
+    blue_band: "B2"    # variable to use to provide blue intensity
 
   OSM:
     label: "Open Street Map"

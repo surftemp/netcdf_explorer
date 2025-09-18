@@ -19,6 +19,7 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
+
 import math
 import os
 import shutil
@@ -54,7 +55,7 @@ def save_image_falsecolour(data_red, data_green, data_blue, path, red_gamma=0.5,
         v = np.where(np.isnan(v),0, v)
         alist.append(v.astype(np.uint8))
     arr = np.stack(alist,axis=-1)
-    im = Image.fromarray(arr,mode="RGB")
+    im = Image.fromarray(arr)
     im.save(path)
 
 def save_image_mask(arr, path, r, g, b):
@@ -65,7 +66,7 @@ def save_image_mask(arr, path, r, g, b):
     alist.append((a + b).astype(np.uint8))
     alist.append(np.where(arr>0,255,0).astype(np.uint8))
     rgba_arr = np.stack(alist, axis=-1)
-    im = Image.fromarray(rgba_arr, mode="RGBA")
+    im = Image.fromarray(rgba_arr)
     im.save(path)
 
 def save_image_discrete(arr,path,values):

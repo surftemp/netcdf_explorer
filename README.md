@@ -1,6 +1,8 @@
 # netcdf_explorer
 
-Generate static HTML and images for visualising array data read from a netcdf4 file
+Tools for generating static HTML and images for visualising array data read from a netcdf4 file.
+
+## Screenshots
 
 * `generate_html`: overlay view
   
@@ -9,6 +11,10 @@ Generate static HTML and images for visualising array data read from a netcdf4 f
 * `generate_html`: grid view
   
 ![image](https://github.com/user-attachments/assets/b6a408dc-54d4-479f-9bd8-0f50b2326c89)
+
+* `bigplot`: static RGB image
+
+![image](https://github.com/user-attachments/assets/48355014-2a7e-4b13-a935-a9844d05cd36)
 
 ## Installation
 
@@ -69,10 +75,9 @@ This [commented example configuration file](test/example_layers.yaml) should exp
 Use `bigplot` to generate potentially large image files as png or pdf files
 
 ```
-usage: bigplot [-h] --input-path INPUT_PATH --input-variable INPUT_VARIABLE [INPUT_VARIABLE ...] [--x X] [--y Y] [--selector coordinate min max] [--iselector dimension min max] [--flip] [--vmin VMIN]
-               [--vmax VMAX] [--vformat VFORMAT] [--cmap CMAP] [--legend-width LEGEND_WIDTH] [--legend-height LEGEND_HEIGHT] [--title TITLE] [--title-height TITLE_HEIGHT] [--attrs ATTRS [ATTRS ...]]
-               [--attr-height ATTR_HEIGHT] [--font-path FONT_PATH] [--output-path OUTPUT_PATH] [--plot-width PLOT_WIDTH]
-
+usage: bigplot [-h] --input-path INPUT_PATH [INPUT_PATH ...] --input-variable INPUT_VARIABLE [INPUT_VARIABLE ...] [--x X] [--y Y] [--selector coordinate min max] [--iselector dimension min max] [--flip]
+               [--vmin VMIN] [--vmax VMAX] [--vformat VFORMAT] [--cmap CMAP] [--legend-width LEGEND_WIDTH] [--legend-height LEGEND_HEIGHT] [--title TITLE] [--title-height TITLE_HEIGHT]
+               [--attrs ATTRS [ATTRS ...]] [--attr-height ATTR_HEIGHT] [--font-path FONT_PATH] [--output-path OUTPUT_PATH] [--output-filetype OUTPUT_FILETYPE] [--plot-width PLOT_WIDTH] [--border BORDER]
 ```
 
 Example usage - plot a single variable:
@@ -87,9 +92,7 @@ Example usage - true colour plot of red, green and blue bands
 bigplot --input-path 20250129124009-NCEO-L1C-Landsat9-v2.0-fv01.0.nc --input-variable B4 B3 B2 --output-path test.png --title "Iceland Scene" --attrs acquisition_time platform
 ```
 
-<img width="532" height="624" alt="image" src="https://github.com/user-attachments/assets/48355014-2a7e-4b13-a935-a9844d05cd36" />
-
-
+### Notes:
 
 ## General Command Line Options:
 
@@ -127,6 +130,7 @@ bigplot --input-path 20250129124009-NCEO-L1C-Landsat9-v2.0-fv01.0.nc --input-var
 |-----------------|------------------------------------------------------------------------------------------------------------------------|------------------------------------------------|
 | --cchart <PATH> | path to a JSON format {<value>:<colour>} colour chart mapping nominal values to colours, overrides --cmap if specified | --chart colour_map.json                        |
 
+
 The format of the JSON `cchart` file is explained by the following example which maps value 0 to "red", 1 to "green" and 2 to "blue:
 
 ```json
@@ -136,6 +140,17 @@ The format of the JSON `cchart` file is explained by the following example which
   "2": "#0000FF"
 }
 ```
+
+## Command Line Options for plotting RGB data from three variables
+
+| option          | description                                           | example     |
+|-----------------|-------------------------------------------------------|-------------|
+| --gamma <GAMMA> | coefficient to use for gamma correction in rgb plots  | --gamma 0.4 |
+
+The `--vmin` and `--vmax` options are also used in RGB plots.
+
+If three variables are supplied to the `--input-variable` option to provide the R, G and B colours, the options `--cmap`, `--cchart`, `--vformat`, `--legend-width`, and `--legend-height` options are ignored 
+
 
 ## Acknowledgements
 
