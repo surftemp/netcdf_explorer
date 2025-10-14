@@ -35,6 +35,7 @@ import pyproj
 import logging
 import copy
 
+from .histogram import Histogram
 
 from .layers import LayerFactory, LayerSingleBand, LayerWMS
 from .expr_parser import ExpressionParser
@@ -190,6 +191,7 @@ class HTMLGenerator:
         self.layer_legends = {}
 
         self.timeseries_definitions = []
+        self.histogram_definitions = []
 
         if self.x_coordinate:
             self.input_ds = self.reduce_coordinate_dimension(self.input_ds, self.x_coordinate, self.case_dimension)
@@ -200,6 +202,17 @@ class HTMLGenerator:
             for (layer_name, layer_spec) in config["layers"].items():
                 layer = LayerFactory.create(self, layer_name, layer_spec)
                 self.layer_definitions.append(layer)
+
+        if "histograms" in config:
+            for(histogram_name, histogram_spec) in config["histograms"].items():
+                histogram = Histogram(histogram_name,
+                                      label=histogram_spec.get("label",histogram_name),
+                                      band=histogram_spec["band"],
+                                      threshold=histogram_spec.get("threshold",None),
+                                      min_value=histogram_spec.get("min_value",None),
+                                      max_value=histogram_spec.get("max_value",None),
+                                      bin_width=histogram_spec.get("bin_width",None))
+                self.histogram_definitions.append(histogram)
 
         if "timeseries" in config:
             for (timeseries_name, timeseries_spec) in config["timeseries"].items():
@@ -509,6 +522,7 @@ class HTMLGenerator:
             for (index, timestamp, ds) in cases:
                 p.report("",index/n)
                 image_srcs = {}
+                histogram_srcs = {}
                 data_srcs = {}
 
                 for layer_definition in self.flatten_layers(self.layer_definitions):
@@ -524,6 +538,11 @@ class HTMLGenerator:
                         image_srcs[layer_definition.layer_name] = static_image_srcs[layer_definition.layer_name]
                         if layer_definition.save_data():
                             data_srcs[layer_definition.layer_name] = static_data_srcs[layer_definition.layer_name]
+
+                for histogram_definition in self.histogram_definitions:
+                    (src, path) = self.get_image_path(histogram_definition.layer_name, index=index)
+                    histogram_definition.build(ds, path)
+                    image_srcs[histogram_definition.layer_name] = src
 
                 if self.labels:
                     for label_group in self.labels:
@@ -730,6 +749,17 @@ class HTMLGenerator:
                 header_div.add_fragment(ElementFragment("br"))
                 header_div.add_fragment(sf)
             header_cells.append(header_div)
+
+        for histogram in self.histogram_definitions:
+            header_div = ElementFragment("div")
+            label_fragment = ElementFragment("span").add_text(histogram.label)
+            header_div.add_fragment(label_fragment)
+            if histogram.threshold is not None:
+                header_div.add_fragment(ElementFragment("br"))
+                threshold_fragment = ElementFragment("span").add_text(f"threshold={histogram.threshold}")
+                header_div.add_fragment(threshold_fragment)
+            header_cells.append(header_div)
+
         tf.add_header_row(header_cells)
 
         button_cells = [""]
@@ -755,6 +785,11 @@ class HTMLGenerator:
             for layer_definition in self.flatten_layers(self.layer_definitions,only_grid_view=True)[::-1]:
                 src = layer_sources[layer_definition.layer_name]
                 img = ImageFragment(src, layer_definition.layer_name + "_grid_" + str(index), alt_text=timestamp,
+                                    w=self.grid_image_width if self.grid_image_width else image_width)
+                cells.append(img)
+            for histogram_definition in self.histogram_definitions:
+                src = layer_sources[histogram_definition.layer_name]
+                img = ImageFragment(src, histogram_definition.layer_name + "_grid_" + str(index), alt_text=timestamp,
                                     w=self.grid_image_width if self.grid_image_width else image_width)
                 cells.append(img)
             tf.add_row(cells)
