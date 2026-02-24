@@ -1,6 +1,59 @@
 // manage the HTML comprising grid and overlay views
 // bind the controls in the views
 
+class ImageFetcher {
+
+    /**
+     * Manage the fetching for images where the url is encoded in attribute load_url, as they become visible
+     *
+     * This is useful to avoid being throttled by a server with 429 errors when a lot of images are fetched at once
+     */
+
+    constructor(concurrency, callback) {
+        // concurrency defines the number of fetches that can run in parallel
+        this.concurrency = concurrency;
+        this.pending_image_ids = new Set();
+        this.queued_image_ids = [];
+        this.fetching = 0;
+        this.callback = callback;
+    }
+
+    submit(image_id) {
+        if (!(image_id in this.pending_image_ids)) {
+            this.pending_image_ids.add(image_id);
+            this.queued_image_ids.push(image_id);
+            if (this.fetching < this.concurrency) {
+                this.start_fetching().then(() => {
+                });
+            }
+        }
+    }
+
+    async start_fetching() {
+        this.fetching += 1;
+        while(this.queued_image_ids.length > 0) {
+            await this.fetch(this.queued_image_ids.splice(0,1));
+        }
+        this.fetching -= 1;
+    }
+
+    async fetch(image_id) {
+        let img = document.getElementById(image_id);
+        let load_url = img.getAttribute("load_url");
+        let response = await fetch(load_url);
+        const blob = await response.blob();
+        const buffer = await blob.arrayBuffer();
+        const bytes = new Uint8Array(buffer);
+        const base64 = bytes.toBase64();
+        let url = `data:image/png;base64,${base64}`;
+        img.src = url;
+        this.pending_image_ids.delete(image_id);
+        if (this.callback) {
+            this.callback(image_id, url);
+        }
+    }
+}
+
 class HtmlView {
 
     constructor() {
@@ -99,8 +152,67 @@ class HtmlView {
             });
         }
 
-        this.overlay_updating = false;
+        let intersection_options = {
+            "delay": 200 /* check every 200ms */
+        };
 
+        const observer = new IntersectionObserver((entries, observer) => {
+            this.intersection_callback(entries);
+        }, intersection_options);
+
+        // when img elements specify their urls using load_url attributes,
+        // observe them and load the images lazily when they come into view
+        let images = document.querySelectorAll("img");
+        images.forEach((img) => {
+            if (img.hasAttribute("load_url")) {
+                observer.observe(img);
+            }
+        });
+
+        // define an ImageFetcher to lazily load the images
+        this.image_fetcher = new ImageFetcher(4, (image_id, url) => {
+            this.cache_image(image_id, url);
+        });
+
+        // cache the data-uris for lazily loaded images
+        this.image_url_cache = {};
+        this.cached_image_ids = [];
+        this.image_url_cache_size = 500;
+
+        this.overlay_updating = false;
+    }
+
+    cache_image(image_id, image_url) {
+        this.image_url_cache[image_id] = image_url;
+        this.cached_image_ids.push(image_id);
+        if (this.cached_image_ids.length > this.image_url_cache_size) {
+            delete this.image_url_cache[this.cached_image_ids.splice(0,1)];
+        }
+    }
+
+    intersection_callback(entries) {
+        entries.forEach((entry) => {
+            let target = entry.target;
+            if (target.hasAttribute("load_url")) {
+                if (entry.isIntersecting) {
+                    // image is now visible
+                    if (target.hasAttribute("load_url")) {
+                        let url = target.getAttribute("src");
+                        if (url === "") {
+                            let img_id = target.id;
+                            if (img_id in this.image_url_cache) {
+                                target.setAttribute("src",this.image_url_cache[img_id]);
+                            } else {
+                                this.image_fetcher.submit(img_id);
+                            }
+                        }
+                    }
+                } else {
+                    // image is no longer visible
+                    target.src = "";
+                }
+            }
+        });
     }
 
     handle_map_mouseover(y_frac, x_frac) {
@@ -773,9 +885,15 @@ class HtmlView {
     async show() {
 
         this.overlay_updating = true;
-        this.time_range.disabled = true;
-        this.next_button.disabled = true;
-        this.prev_button.disabled = true;
+        if (this.time_range) {
+            this.time_range.disabled = true;
+        }
+        if (this.next_button) {
+            this.next_button.disabled = true;
+        }
+        if (this.prev_button) {
+            this.prev_button.disabled = true;
+        }
 
         this.open_spinner();
 
@@ -783,12 +901,17 @@ class HtmlView {
 
         if (this.index.length == 0) {
             // nothing to show, hide the imagery
-            this.lm.clear_layers();
-            let overlay_label = "0/0";
-            this.scene_label_elt.innerHTML = overlay_label;
+            if (this.lm) {
+                this.lm.clear_layers();
+            }
+            if (this.scene_label_elt) {
+                let overlay_label = "0/0";
+                this.scene_label_elt.innerHTML = overlay_label;
+            }
             if (this.terrain_view_button) {
                 this.terrain_view_button.disabled = true;
             }
+            this.close_spinner();
             return;
         } else {
             if (this.terrain_view_button) {

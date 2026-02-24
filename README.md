@@ -70,9 +70,46 @@ This [commented example configuration file](test/example_layers.yaml) should exp
  | --download-data | provide a link to download this data in the generated html | --download-data area97.nc | 
 
 
+## thumbnail
+
+Use `thumbnail` to generate *quicklook* images in png format from potentially large netcdf4 files
+
+```
+usage: thumbnail [-h] --input-path INPUT_PATH [INPUT_PATH ...] --input-variable INPUT_VARIABLE [INPUT_VARIABLE ...] [--x X] [--y Y] [--iselector dimension min max] [--vmin VMIN] [--vmax VMAX]
+                 [--cmap CMAP] [--background-image-path BACKGROUND_IMAGE_PATH] [--background-image-alpha BACKGROUND_IMAGE_ALPHA] [--plot-width PLOT_WIDTH]
+
+options:
+  -h, --help            show this help message and exit
+  --input-path INPUT_PATH 
+                        path of netcdf input file
+  --output-path OUTPUT_PATH
+                        path of output png file
+  --input-variable INPUT_VARIABLE
+                        name of variable to plot.
+  --x X                 name of x coord
+  --y Y                 name of y coord
+  --iselector dimension min max
+                        provide a dimension selector
+  --vmin VMIN           minimum input variable value to use in colour scale
+  --vmax VMAX           maximum input variable value to use in colour scale
+  --cmap CMAP           colour scale to use, should be the name of a matplotlib color map
+  --background-image-path BACKGROUND_IMAGE_PATH
+                        optional - path to a background image onto which the plot is overlaid
+  --background-image-alpha BACKGROUND_IMAGE_ALPHA
+                        optional - alpha transparency for the background image
+  --plot-width PLOT_WIDTH
+                        Width of the main image plot, in pixels
+```
+
+Example usage: plot sea surface temperatures
+
+```
+thumbnail --input-variable sst --input-path 20251215_regridded_sst.nc --x lon --y lat --cmap turbo --vmin 270 --vmax 315 --plot-width 1024 --output-path plot.png
+```
+
 ## bigplot
 
-Use `bigplot` to generate potentially large image files as png or pdf files
+Use `bigplot` to generate potentially large image files as png or pdf files, which may be annotated with titles and legends.
 
 ```
 usage: bigplot [-h] --input-path INPUT_PATH [INPUT_PATH ...] --input-variable INPUT_VARIABLE [INPUT_VARIABLE ...] [--x X] [--y Y] [--selector coordinate min max] [--iselector dimension min max] [--flip]

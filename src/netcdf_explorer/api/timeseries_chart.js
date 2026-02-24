@@ -7,6 +7,7 @@ class TimeseriesChart {
         let div = document.getElementById(element_id);
         let options = {
             legend: 'always',
+            /* showRangeSelector: true, */
             connectSeparatedPoints: true,
             zoomCallback: (minDate, maxDate, yRange) => {
                 if (spec.type !== "seasonal") {

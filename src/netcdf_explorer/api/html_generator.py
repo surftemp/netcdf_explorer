@@ -784,13 +784,19 @@ class HTMLGenerator:
                 cells += [self.generate_label_controls(index)]
             for layer_definition in self.flatten_layers(self.layer_definitions,only_grid_view=True)[::-1]:
                 src = layer_sources[layer_definition.layer_name]
-                img = ImageFragment(src, layer_definition.layer_name + "_grid_" + str(index), alt_text=timestamp,
-                                    w=self.grid_image_width if self.grid_image_width else image_width)
-                cells.append(img)
+                width = self.grid_image_width if self.grid_image_width else image_width
+                height = round(self.grid_image_width * (image_height/image_width)) if self.grid_image_width else image_height
+                img = ImageFragment("", layer_definition.layer_name + "_grid_" + str(index), alt_text=timestamp,
+                                    w=width,
+                                    h=height,
+                                    load_url=src)
+                div = ElementFragment("div",{"style":f"width:{width}px;height:{height}px;"})
+                div.add_fragment(img)
+                cells.append(div)
             for histogram_definition in self.histogram_definitions:
                 src = layer_sources[histogram_definition.layer_name]
-                img = ImageFragment(src, histogram_definition.layer_name + "_grid_" + str(index), alt_text=timestamp,
-                                    w=self.grid_image_width if self.grid_image_width else image_width)
+                img = ImageFragment("", histogram_definition.layer_name + "_grid_" + str(index), alt_text=timestamp,
+                                    w=self.grid_image_width if self.grid_image_width else image_width, load_url=src)
                 cells.append(img)
             tf.add_row(cells)
             row += 1
@@ -978,15 +984,14 @@ class HTMLGenerator:
             years = set()
 
             for i in range(n):
-                timestamp = str(self.input_ds[self.time_coordinate].data[i])[
-                            :10] if self.time_coordinate else None
+                timestamp = str(self.input_ds[self.time_coordinate].data[i])[:19] if self.time_coordinate else None
 
                 data_slice = self.input_ds.isel(**{self.case_dimension: i})
 
-                dt = datetime.datetime.strptime(timestamp, "%Y-%m-%d")
+                dt = datetime.datetime.strptime(timestamp, "%Y-%m-%dT%H:%M:%S")
                 years.add(dt.year)
 
-                rowdata = {"datetime": dt}
+                rowdata = {"datetime": dt, "timestamp": timestamp}
 
                 if source_masks:
                     # build a timseries for each combination of mask and variable
@@ -1039,7 +1044,7 @@ class HTMLGenerator:
                     headers = ["datetime"] + variable_names
                     writer.writerow(headers)
                     for rowdata in data:
-                        row = [rowdata["datetime"].strftime("%Y-%m-%d")]
+                        row = [rowdata["timestamp"]]
                         for header in headers[1:]:
                             v = rowdata.get(header,"")
                             if math.isnan(v):

@@ -24,8 +24,9 @@ import math
 import os
 import shutil
 import requests
+import json
 
-from PIL import Image
+from PIL import Image, ImageDraw
 from matplotlib import cm
 import numpy as np
 import xarray as xr
@@ -320,6 +321,55 @@ class LayerSingleBand(LayerBase):
         de.encode(self.get_data(ds[self.band_name]), path)
         return self.data
 
+class LayerVector(LayerBase):
+
+    def __init__(self, layer, converter, layer_name, layer_label, selectors, band_name, scale, thickness, colour):
+        super().__init__(layer, converter, layer_name, layer_label, selectors)
+        self.band_name = band_name
+        self.scale = scale
+        self.thickness = thickness
+        self.colour = colour
+
+    def check(self, ds):
+        err = super().check(ds)
+        if err:
+            return err
+        if self.band_name not in ds:
+            return f"No variable {self.band_name}"
+        if self.converter.case_dimension and self.converter.case_dimension in ds[self.band_name].dims:
+            self.set_case_wise(True)
+
+    def build(self,ds,path):
+        s = ds[self.band_name].item()
+        vectors = json.loads(s)
+
+        image_width, image_height = self.converter.get_image_dimensions(ds)
+
+        image_width *= self.scale
+        image_height *= self.scale
+
+        im = Image.new('RGBA', (image_width, image_height), (255, 255, 255, 0))
+        draw = ImageDraw.Draw(im)
+
+        def swap_xy(v):
+            return [((x+0.5)*self.scale,image_height-(y+0.5)*self.scale) for (y,x) in v]
+
+        for vector in vectors:
+            draw.line(swap_xy(vector), fill=tuple(self.colour), width=self.thickness)
+        im.save(path)
+
+    def has_legend(self):
+        return False
+
+    def build_legend(self, path):
+        pass
+
+    def save_data(self):
+        return False
+
+    def build_data(self,ds,path):
+        pass
+
 
 class LayerWMS(LayerBase):
 
@@ -493,6 +543,12 @@ class LayerFactory:
             url = layer["url"]
             scale = layer.get("scale", 1)
             created_layer = LayerWMS(layer, converter, layer_name, layer_label, url, scale)
+        elif layer_type == "vector":
+            layer_band = layer.get("band", layer_name)
+            scale = layer.get("scale", 10)
+            thickness = layer.get("thickness", 3)
+            colour = layer.get("colour",[0,0,0,255])
+            created_layer = LayerVector(layer, converter, layer_name, layer_label, selectors, layer_band, scale=scale, thickness=thickness,colour=colour)
         else:
             raise Exception(f"Unknown layer type {layer_type}")
         if not in_layer_group:

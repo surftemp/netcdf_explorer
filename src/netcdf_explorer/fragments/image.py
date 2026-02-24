@@ -64,9 +64,15 @@ def save_image_mask(arr, path, r, g, b):
 
 class ImageFragment(ElementFragment):
 
-    def __init__(self, src, id, alt_text="", w=None, h=None):
-        super().__init__("img", prepare_attrs({
-            "src": src, "alt":alt_text, "id":id, "width": w, "height": h, "loading":"lazy"}))
+    def __init__(self, src, id, alt_text="", w=None, h=None, load_url=None):
+        attrs = {
+            "src": src, "alt":alt_text, "id":id, "width": w, "height": h
+        }
+        if load_url is not None:
+            attrs["load_url"] = load_url
+        else:
+            attrs["loading"] = "lazy"
+        super().__init__("img", prepare_attrs(attrs))
 
 
 def inlined_image(from_path,mime_type="image/png"):
