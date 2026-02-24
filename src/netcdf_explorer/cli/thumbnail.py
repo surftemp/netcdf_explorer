@@ -78,7 +78,6 @@ class Thumbnail:
         if (self.selector):
             da = da.isel(**self.selector)
         da = da.squeeze()
-        print(dataset,da)
 
         if len(da.shape) != 2:
             raise Exception(f"too many dimensions to plot {da.dims}")
@@ -160,7 +159,6 @@ def main():
                   background_image_path=args.background_image_path,
                   background_alpha=args.background_image_alpha)
 
-    print(args.input_path)
     ds = xr.open_dataset(args.input_path)
     t.generate(ds, args.output_path)
 
