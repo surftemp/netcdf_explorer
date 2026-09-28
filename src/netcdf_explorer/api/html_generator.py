@@ -88,8 +88,11 @@ class Progress(object):
 
 class HTMLGenerator:
 
-    def __init__(self, config, input_ds, output_folder, title,
-                 download_from=None, filter_controls=False, index_list=None):
+    def __init__(self, config, input_path, output_folder, title,
+                 add_download_link=True, filter_controls=False):
+
+        input_ds = xr.open_dataset(input_path)
+        os.makedirs(output_folder, exist_ok=True)
 
         dimensions = config.get("dimensions", {})
         coordinates = config.get("coordinates", {})
@@ -116,7 +119,16 @@ class HTMLGenerator:
 
         self.max_zoom = image.get("max-zoom", None)
         self.grid_image_width = image.get("grid-width", None)
-        self.netcdf_download_filename = os.path.split(download_from)[-1] if download_from else ""
+        self.download_filename = ""
+        if add_download_link:
+            self.download_filename = os.path.split(input_path)[-1]
+            download_link_path = os.path.join(self.output_folder, self.download_filename)
+            if not os.path.exists(download_link_path):
+                os.symlink(input_path, download_link_path)
+            else:
+                print("Download path {download_link_path} already exists, unable to create new download link.  Data will not be linked in output.")
+                self.download_filename = ""
+
         self.output_html_path = os.path.join(output_folder, "index.html")
         self.filter_controls = filter_controls
         self.info = config.get("info",{})
@@ -156,19 +168,10 @@ class HTMLGenerator:
             with open(js_path) as f:
                 js_code += f.read()
 
-        if index_list:
-            with open(os.path.join(self.output_folder,"index.csv"),"w") as of:
-                writer = csv.writer(of)
-                writer.writerow(["case","source_filename","source_index"])
-                for i in range(len(index_list)):
-                    writer.writerow([i+1,index_list[i][0],index_list[i][1]])
-
         with open(os.path.join(self.output_folder, "index.js"), "w") as f:
             f.write(js_code)
 
         shutil.copyfile(css_path, os.path.join(self.output_folder, "index.css"))
-        if download_from:
-            shutil.copyfile(download_from, os.path.join(self.output_folder, self.netcdf_download_filename))
 
         # copy in dependencies
         dependency_folder = os.path.join(self.output_folder, "dependencies")
@@ -625,11 +628,10 @@ class HTMLGenerator:
             grid_container_div.add_element("input",
                 {"type":"date", "id":"grid_select_date","min":self.min_timestamp[:10],"max":self.max_timestamp[:10]})
 
-        if self.netcdf_download_filename:
+        if self.download_filename:
             grid_container_div.add_element("span", {"class": "spacer"}).add_text("|")
-            grid_container_div.add_element("a", {"href": self.netcdf_download_filename,
-                                                 "download": self.netcdf_download_filename}).add_text(
-                "download netcdf4")
+            grid_container_div.add_element("a", {"href": self.download_filename,
+                                                 "download": self.download_filename}).add_text("download data")
 
         grid_container_div.add_element("span", {"class": "spacer"}).add_text("|")
         grid_container_div.add_element("button", {"id": "prev_page_btn"}).add_text("Previous page")
@@ -737,10 +739,10 @@ class HTMLGenerator:
         overlay_container_div.add_element("input", {"type": "button", "id": "grid_view_btn", "value": "Show Grid View"})
         overlay_container_div.add_element("span").add_text(self.title)
 
-        if self.netcdf_download_filename:
+        if self.download_filename:
             overlay_container_div.add_element("span", {"class": "spacer"}).add_text("|")
-            overlay_container_div.add_element("a", {"href": self.netcdf_download_filename,
-                                                    "download": self.netcdf_download_filename}).add_text(
+            overlay_container_div.add_element("a", {"href": self.download_filename,
+                                                    "download": self.download_filename}).add_text(
                 "download netcdf4")
 
         has_data = False
@@ -1000,11 +1002,10 @@ class HTMLGenerator:
 
         timeseries_container_div.add_element("span").add_text(self.title)
 
-        if self.netcdf_download_filename:
+        if self.download_filename:
             timeseries_container_div.add_element("span", {"class": "spacer"}).add_text("|")
-            timeseries_container_div.add_element("a", {"href": self.netcdf_download_filename,
-                                                 "download": self.netcdf_download_filename}).add_text(
-                "download netcdf4")
+            timeseries_container_div.add_element("a", {"href": self.download_filename,
+                                                 "download": self.download_filename}).add_text("download data")
 
         timeseries_container_div.add_element("h2").add_text("timeseries")
 

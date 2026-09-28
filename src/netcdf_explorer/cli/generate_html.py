@@ -75,22 +75,11 @@ def main():
         print("Error - please provide a case dimension")
         sys.exit(-1)
 
-    index_list = []
+    input_path = os.path.abspath(args.input_path)
+    output_folder = os.path.abspath(args.output_folder)
 
-    print(f"Reading {args.input_path}")
-    ds = xr.open_dataset(args.input_path)
-    if case_dimension:
-        ds, indices = subset(ds, case_dimension, sample_count=args.sample_count, sample_cases=args.sample_cases)
-        for i in indices:
-            index_list.append((args.input_path,i))
-
-    download_filepath = None
-    if args.download_data:
-        download_filepath = args.input_path
-
-    g = HTMLGenerator(config, ds, os.path.abspath(args.output_folder), title=args.title,
-                                 download_from=download_filepath,
-                                 filter_controls=args.filter_controls, index_list=index_list)
+    g = HTMLGenerator(config, input_path, output_folder, title=args.title, add_download_link=args.download_data,
+                                 filter_controls=args.filter_controls)
     g.run()
 
 
