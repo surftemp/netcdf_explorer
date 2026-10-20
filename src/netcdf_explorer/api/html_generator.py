@@ -89,9 +89,10 @@ class Progress(object):
 class HTMLGenerator:
 
     def __init__(self, config, input_path, output_folder, title,
-                 add_download_link=True, filter_controls=False):
+                 add_download_link=True, filter_controls=False, sample_count=None, sample_cases=None):
 
         input_ds = xr.open_dataset(input_path)
+
         os.makedirs(output_folder, exist_ok=True)
 
         dimensions = config.get("dimensions", {})
@@ -105,6 +106,19 @@ class HTMLGenerator:
         self.y_coordinate = coordinates.get("y", "")
         self.time_coordinate = coordinates.get("time", "")
         self.input_ds = input_ds
+
+        if sample_count is not None or sample_cases is not None:
+            n = len(self.input_ds[self.case_dimension])
+            selected_indexes = list(range(n))
+
+            if sample_cases:
+                selected_indexes = sample_cases
+            else:
+                if sample_count and sample_count < n:
+                    selected_indexes = np.random.choice(np.array(selected_indexes), sample_count,
+                                                    replace=False).tolist()
+            if sample_cases or sample_count:
+                self.input_ds = self.input_ds.isel(**{self.case_dimension: selected_indexes})
 
         self.data_width = None
         self.data_height = None

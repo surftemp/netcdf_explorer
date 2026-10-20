@@ -957,12 +957,29 @@ class HtmlView {
 
         this.overlay_urls = {};
 
-        let label_specs = this.index[this.current_index].label_specs;
-
         for (let idx = this.scenes.layers.length - 1; idx >= 0; idx = idx - 1) {
             let layer_name = this.scenes.layers[idx].name;
             let image_url = this.update_image(layer_name);
             this.overlay_urls[layer_name] = image_url;
+
+            if ("classes" in this.scenes.layers[idx]) {
+                let table_container_ele = document.getElementById(layer_name+"_classes");
+                if (table_container_ele) {
+                    let table_html = "<table>";
+                    let classes = this.scenes.layers[idx]["classes"];
+                    for (let key in classes) {
+                        let label = classes[key]["label"];
+                        let colour = classes[key]["colour"];
+                        table_html += "<tr><td>";
+                        table_html += label;
+                        table_html += "</td><td>";
+                        table_html += '<div style="background-color:' + colour + ';">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</div>';
+                        table_html += '</td></tr>';
+                    }
+                    table_html += '</table>';
+                    table_container_ele.innerHTML = table_html;
+                }
+            }
         }
 
 

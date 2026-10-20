@@ -30,18 +30,7 @@ import sys
 
 from netcdf_explorer.api.html_generator import HTMLGenerator
 
-def subset(ds, case_dimension, sample_count, sample_cases):
-    n = len(ds[case_dimension])
-    selected_indexes = list(range(n))
 
-    if sample_cases:
-        selected_indexes = sample_cases
-
-    if sample_count and sample_count < n:
-        selected_indexes = np.random.choice(np.array(selected_indexes), sample_count, replace=False).tolist()
-    if sample_cases or sample_count:
-        ds = ds.isel(**{case_dimension:selected_indexes})
-    return ds, selected_indexes
 
 def main():
     parser = argparse.ArgumentParser()
@@ -79,7 +68,7 @@ def main():
     output_folder = os.path.abspath(args.output_folder)
 
     g = HTMLGenerator(config, input_path, output_folder, title=args.title, add_download_link=args.download_data,
-                                 filter_controls=args.filter_controls)
+                                 filter_controls=args.filter_controls, sample_count=args.sample_count, sample_cases=args.sample_cases)
     g.run()
 
 
